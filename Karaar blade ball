@@ -1,70 +1,87 @@
--- KARRAR ESP & AIM V1.0
--- Roblox Studio - LocalScript
+--========================================
+-- KARRAR ESP SYSTEM V2.0
+-- Roblox Studio | LocalScript
+--========================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 
 -- SETTINGS
-local AimEnabled = false
 local ESPEnabled = false
-local AimKeyHeld = false
+local AimEnabled = false
 
-local Smoothness = 0.18
+local AimSpeed = 14
 local MaxDistance = 500
-local MaxScreenDistance = 300
 
 local Highlights = {}
 
+--========================================
 -- GUI
+--========================================
+
 local GUI = Instance.new("ScreenGui")
 GUI.Name = "KarrarSystem"
 GUI.ResetOnSpawn = false
 GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 local Main = Instance.new("Frame")
-Main.Size = UDim2.fromOffset(250, 190)
-Main.Position = UDim2.new(0.5, -125, 0.5, -95)
-Main.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
+Main.Name = "Main"
+Main.Size = UDim2.fromOffset(260, 220)
+Main.Position = UDim2.new(0.5, -130, 0.5, -110)
+Main.BackgroundColor3 = Color3.fromRGB(18, 18, 27)
 Main.BorderSizePixel = 0
+Main.Active = true
 Main.Parent = GUI
 
 Instance.new("UICorner", Main).CornerRadius =
     UDim.new(0, 12)
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(130, 70, 255)
-Stroke.Thickness = 2
-Stroke.Parent = Main
+local Border = Instance.new("UIStroke")
+Border.Color = Color3.fromRGB(135, 75, 255)
+Border.Thickness = 2
+Border.Parent = Main
 
+--========================================
 -- TITLE
+--========================================
+
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 42)
-Title.BackgroundTransparency = 1
-Title.Text = "KARRAR  |  ESP SYSTEM"
-Title.TextColor3 = Color3.fromRGB(180, 130, 255)
+Title.Name = "Title"
+Title.Size = UDim2.new(1, 0, 0, 45)
+Title.BackgroundColor3 = Color3.fromRGB(30, 25, 45)
+Title.Text = "KARRAR  |  V2.0"
+Title.TextColor3 = Color3.fromRGB(190, 150, 255)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 16
+Title.TextSize = 17
+Title.Active = true
 Title.Parent = Main
 
+Instance.new("UICorner", Title).CornerRadius =
+    UDim.new(0, 12)
+
+--========================================
 -- BUTTON CREATOR
-local function CreateButton(text, position)
+--========================================
+
+local function CreateButton(Name, Text, Y)
 
     local Button = Instance.new("TextButton")
 
-    Button.Size = UDim2.new(0, 210, 0, 42)
-    Button.Position = position
+    Button.Name = Name
+    Button.Size = UDim2.new(1, -30, 0, 43)
+    Button.Position = UDim2.fromOffset(15, Y)
 
     Button.BackgroundColor3 =
-        Color3.fromRGB(45, 45, 58)
+        Color3.fromRGB(43, 43, 58)
 
+    Button.Text = Text
     Button.TextColor3 = Color3.new(1, 1, 1)
+
     Button.Font = Enum.Font.GothamBold
     Button.TextSize = 14
-    Button.Text = text
 
     Button.AutoButtonColor = true
     Button.Parent = Main
@@ -76,34 +93,69 @@ local function CreateButton(text, position)
 end
 
 local AimButton = CreateButton(
-    "AIM: OFF",
-    UDim2.fromOffset(20, 55)
+    "AimButton",
+    "AIM ASSIST: OFF",
+    60
 )
 
 local ESPButton = CreateButton(
+    "ESPButton",
     "ESP: OFF",
-    UDim2.fromOffset(20, 108)
+    112
 )
 
--- AIM TOGGLE
+local Status = Instance.new("TextLabel")
+
+Status.Size = UDim2.new(1, -30, 0, 25)
+Status.Position = UDim2.fromOffset(15, 170)
+Status.BackgroundTransparency = 1
+
+Status.Text = "SYSTEM READY"
+Status.TextColor3 = Color3.fromRGB(150, 150, 170)
+
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 12
+
+Status.Parent = Main
+
+--========================================
+-- BUTTON COLORS
+--========================================
+
+local function UpdateButton(Button, Enabled, Name)
+
+    Button.Text = Name .. (Enabled and ": ON" or ": OFF")
+
+    Button.BackgroundColor3 = Enabled
+        and Color3.fromRGB(105, 55, 190)
+        or Color3.fromRGB(43, 43, 58)
+end
+
+--========================================
+-- AIM ASSIST TOGGLE
+--========================================
+
 AimButton.MouseButton1Click:Connect(function()
 
     AimEnabled = not AimEnabled
 
-    AimButton.Text =
-        AimEnabled and "AIM: ON" or "AIM: OFF"
-
-    AimButton.BackgroundColor3 =
-        AimEnabled
-        and Color3.fromRGB(110, 55, 190)
-        or Color3.fromRGB(45, 45, 58)
+    UpdateButton(
+        AimButton,
+        AimEnabled,
+        "AIM ASSIST"
+    )
 end)
 
+--========================================
 -- ESP SYSTEM
+--========================================
+
 local function RemoveESP(Player)
 
     if Highlights[Player] then
+
         Highlights[Player]:Destroy()
+
         Highlights[Player] = nil
     end
 end
@@ -124,11 +176,11 @@ local function AddESP(Player)
 
     local Highlight = Instance.new("Highlight")
 
-    Highlight.Name = "KarrarHighlight"
+    Highlight.Name = "KarrarESP"
     Highlight.Adornee = Character
 
     Highlight.FillColor =
-        Color3.fromRGB(140, 60, 255)
+        Color3.fromRGB(135, 65, 255)
 
     Highlight.OutlineColor =
         Color3.fromRGB(255, 255, 255)
@@ -155,7 +207,6 @@ local function UpdateESP()
             else
                 RemoveESP(Player)
             end
-
         end
     end
 end
@@ -164,19 +215,24 @@ ESPButton.MouseButton1Click:Connect(function()
 
     ESPEnabled = not ESPEnabled
 
-    ESPButton.Text =
-        ESPEnabled and "ESP: ON" or "ESP: OFF"
-
-    ESPButton.BackgroundColor3 =
-        ESPEnabled
-        and Color3.fromRGB(110, 55, 190)
-        or Color3.fromRGB(45, 45, 58)
+    UpdateButton(
+        ESPButton,
+        ESPEnabled,
+        "ESP"
+    )
 
     UpdateESP()
 end)
 
--- PLAYER RESPAWN
+--========================================
+-- PLAYER REGISTRATION
+--========================================
+
 local function RegisterPlayer(Player)
+
+    if Player == LocalPlayer then
+        return
+    end
 
     Player.CharacterAdded:Connect(function()
 
@@ -189,147 +245,62 @@ local function RegisterPlayer(Player)
 end
 
 for _, Player in ipairs(Players:GetPlayers()) do
-    if Player ~= LocalPlayer then
-        RegisterPlayer(Player)
-    end
+    RegisterPlayer(Player)
 end
 
 Players.PlayerAdded:Connect(RegisterPlayer)
 
 Players.PlayerRemoving:Connect(function(Player)
+
     RemoveESP(Player)
 end)
 
--- TARGET DETECTION
-local function GetBestTarget()
+--========================================
+-- DRAGGABLE WINDOW
+-- MOUSE + TOUCH
+--========================================
 
-    local BestTarget = nil
-    local BestDistance = MaxScreenDistance
-
-    local Viewport = Camera.ViewportSize
-    local Center = Vector2.new(
-        Viewport.X / 2,
-        Viewport.Y / 2
-    )
-
-    for _, Player in ipairs(Players:GetPlayers()) do
-
-        if Player ~= LocalPlayer then
-
-            local Character = Player.Character
-
-            if Character then
-
-                local Head = Character:FindFirstChild("Head")
-                local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-
-                if Head and Humanoid and Humanoid.Health > 0 then
-
-                    local ScreenPosition, Visible =
-                        Camera:WorldToViewportPoint(Head.Position)
-
-                    local WorldDistance =
-                        (Camera.CFrame.Position - Head.Position).Magnitude
-
-                    if Visible and WorldDistance <= MaxDistance then
-
-                        local Distance =
-                            (Vector2.new(
-                                ScreenPosition.X,
-                                ScreenPosition.Y
-                            ) - Center).Magnitude
-
-                        if Distance < BestDistance then
-
-                            BestDistance = Distance
-                            BestTarget = Head
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return BestTarget
-end
-
--- AIM ACTIVATION
-UserInputService.InputBegan:Connect(function(Input, Processed)
-
-    if Processed then return end
-
-    if Input.UserInputType ==
-        Enum.UserInputType.MouseButton2 then
-
-        AimKeyHeld = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(Input)
-
-    if Input.UserInputType ==
-        Enum.UserInputType.MouseButton2 then
-
-        AimKeyHeld = false
-    end
-end)
-
--- AIM LOOP
-RunService:BindToRenderStep(
-    "KarrarAim",
-    Enum.RenderPriority.Camera.Value + 1,
-
-    function()
-
-        if not AimEnabled or not AimKeyHeld then
-            return
-        end
-
-        local Target = GetBestTarget()
-
-        if Target then
-
-            local CameraPosition = Camera.CFrame.Position
-
-            local DesiredCFrame = CFrame.lookAt(
-                CameraPosition,
-                Target.Position
-            )
-
-            Camera.CFrame = Camera.CFrame:Lerp(
-                DesiredCFrame,
-                Smoothness
-            )
-        end
-    end
-)
-
--- DRAGGABLE UI
 local Dragging = false
 local DragStart
 local StartPosition
+local DragInput
 
 Title.InputBegan:Connect(function(Input)
 
-    if Input.UserInputType ==
-        Enum.UserInputType.MouseButton1 then
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+    or Input.UserInputType == Enum.UserInputType.Touch then
 
         Dragging = true
+
         DragStart = Input.Position
         StartPosition = Main.Position
+
+        if Input.UserInputType == Enum.UserInputType.Touch then
+            DragInput = Input
+        end
     end
 end)
 
 UserInputService.InputChanged:Connect(function(Input)
 
-    if Dragging and Input.UserInputType ==
-        Enum.UserInputType.MouseMovement then
+    if not Dragging then
+        return
+    end
+
+    local IsMouse =
+        Input.UserInputType == Enum.UserInputType.MouseMovement
+
+    local IsTouch =
+        Input == DragInput
+
+    if IsMouse or IsTouch then
 
         local Delta = Input.Position - DragStart
 
         Main.Position = UDim2.new(
             StartPosition.X.Scale,
             StartPosition.X.Offset + Delta.X,
+
             StartPosition.Y.Scale,
             StartPosition.Y.Offset + Delta.Y
         )
@@ -338,11 +309,18 @@ end)
 
 UserInputService.InputEnded:Connect(function(Input)
 
-    if Input.UserInputType ==
-        Enum.UserInputType.MouseButton1 then
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+    or Input == DragInput then
 
         Dragging = false
+        DragInput = nil
     end
 end)
 
-print("KARRAR SYSTEM V1.0 LOADED")
+--========================================
+-- INITIALIZATION
+--========================================
+
+Status.Text = "KARRAR SYSTEM V2.0 READY"
+
+print("KARRAR SYSTEM V2.0 LOADED")
