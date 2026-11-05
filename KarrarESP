@@ -1,1 +1,72 @@
+-- KARRAR ESP SYSTEM
+-- Created by KARRAR
 
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local Me = Players.LocalPlayer
+local ESP = {}
+
+local function AddESP(player)
+    if player == Me then return end
+
+    local function Setup(character)
+        local head = character:WaitForChild("Head", 10)
+        if not head then return end
+
+        local old = head:FindFirstChild("KARRAR_ESP")
+        if old then old:Destroy() end
+
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "KARRAR_ESP"
+        gui.Adornee = head
+        gui.Size = UDim2.fromOffset(200, 40)
+        gui.StudsOffset = Vector3.new(0, 2, 0)
+        gui.AlwaysOnTop = false
+        gui.Parent = head
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.fromScale(1, 1)
+        label.BackgroundTransparency = 1
+        label.Text = player.Name
+        label.TextColor3 = Color3.new(1, 1, 1)
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 18
+        label.Parent = gui
+
+        ESP[player] = {
+            Head = head,
+            Label = label
+        }
+    end
+
+    if player.Character then
+        Setup(player.Character)
+    end
+
+    player.CharacterAdded:Connect(Setup)
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    AddESP(player)
+end
+
+Players.PlayerAdded:Connect(AddESP)
+
+RunService.RenderStepped:Connect(function()
+    local char = Me.Character
+    local myHead = char and char:FindFirstChild("Head")
+    if not myHead then return end
+
+    for player, data in pairs(ESP) do
+        if data.Head and data.Head.Parent then
+            local distance =
+                (myHead.Position - data.Head.Position).Magnitude
+
+            data.Label.TextSize =
+                math.clamp(35 - distance / 10, 12, 35)
+        end
+    end
+end)
+
+print("KARRAR ESP LOADED")
