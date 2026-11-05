@@ -1,120 +1,258 @@
+-- Karrar Head Tracker V2
+-- Mobile + PC
+-- Visual Head Tracking
+
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
 
-local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
-local consent = ReplicatedStorage:WaitForChild("TrackingConsent")
+local Camera = workspace.CurrentCamera
 
-local enabled = false
-local allowed = false
-local target = nil
+local Enabled = true
+local FOVRadius = 150
+local CurrentTarget = nil
+local CurrentHighlight = nil
 
-local gui = Instance.new("ScreenGui")
-gui.Name = "TrackingSystem"
-gui.ResetOnSpawn = false
-gui.Parent = player:WaitForChild("PlayerGui")
+-- GUI
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "KarrarHeadTracker"
+GUI.ResetOnSpawn = false
+GUI.IgnoreGuiInset = true
+GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
-local circle = Instance.new("Frame")
-circle.Size = UDim2.fromOffset(160, 160)
-circle.Position = UDim2.new(0.5, -80, 0.5, -80)
-circle.BackgroundTransparency = 1
-circle.Parent = gui
+-- FOV Circle
+local Circle = Instance.new("Frame")
+Circle.Name = "FOV"
+Circle.AnchorPoint = Vector2.new(0.5, 0.5)
+Circle.BackgroundTransparency = 1
+Circle.Size = UDim2.fromOffset(300, 300)
+Circle.Parent = GUI
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(1, 0)
-corner.Parent = circle
+local Round = Instance.new("UICorner")
+Round.CornerRadius = UDim.new(1, 0)
+Round.Parent = Circle
 
-local stroke = Instance.new("UIStroke")
-stroke.Thickness = 2
-stroke.Color = Color3.fromRGB(255, 0, 0)
-stroke.Parent = circle
+local Border = Instance.new("UIStroke")
+Border.Color = Color3.fromRGB(255, 50, 50)
+Border.Thickness = 2
+Border.Parent = Circle
 
-local function makeButton(text, position)
-	local button = Instance.new("TextButton")
-	button.Size = UDim2.fromOffset(150, 40)
-	button.Position = position
-	button.Text = text
-	button.TextScaled = true
-	button.Parent = gui
-	return button
+-- Panel
+local Panel = Instance.new("Frame")
+Panel.Size = UDim2.fromOffset(190, 145)
+Panel.Position = UDim2.new(0, 15, 0.35, 0)
+Panel.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+Panel.Parent = GUI
+
+Instance.new("UICorner", Panel)
+
+local function Button(name, title, pos, size)
+    local B = Instance.new("TextButton")
+    B.Name = name
+    B.Text = title
+    B.Position = pos
+    B.Size = size
+    B.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    B.TextColor3 = Color3.new(1, 1, 1)
+    B.TextSize = 14
+    B.Parent = Panel
+
+    Instance.new("UICorner", B)
+    return B
 end
 
-local trackButton = makeButton(
-	"TRACK: OFF",
-	UDim2.new(0.5, -75, 1, -100)
+local Toggle = Button(
+    "Toggle",
+    "SYSTEM: ON",
+    UDim2.fromOffset(10, 10),
+    UDim2.new(1, -20, 0, 35)
 )
 
-local consentButton = makeButton(
-	"ALLOW: OFF",
-	UDim2.new(0.5, -75, 1, -150)
+local Minus = Button(
+    "Minus",
+    "- FOV",
+    UDim2.fromOffset(10, 55),
+    UDim2.fromOffset(75, 30)
 )
 
-consentButton.Activated:Connect(function()
-	allowed = not allowed
-	consent:FireServer(allowed)
-	consentButton.Text = allowed and "ALLOW: ON" or "ALLOW: OFF"
-end)
+local Plus = Button(
+    "Plus",
+    "+ FOV",
+    UDim2.fromOffset(105, 55),
+    UDim2.fromOffset(75, 30)
+)
 
-trackButton.Activated:Connect(function()
-	enabled = not enabled
-	target = nil
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(1, -20, 0, 35)
+Status.Position = UDim2.fromOffset(10, 100)
+Status.BackgroundTransparency = 1
+Status.TextColor3 = Color3.new(1, 1, 1)
+Status.Text = "Target: None"
+Status.TextSize = 13
+Status.Parent = Panel
 
-	trackButton.Text = enabled and "TRACK: ON" or "TRACK: OFF"
-	stroke.Color = enabled
-		and Color3.fromRGB(0, 255, 0)
-		or Color3.fromRGB(255, 0, 0)
-end)
+-- Head Marker
+local Marker = Instance.new("BillboardGui")
+Marker.Name = "HeadMarker"
+Marker.Size = UDim2.fromOffset(65, 65)
+Marker.AlwaysOnTop = true
+Marker.Enabled = false
+Marker.Parent = GUI
 
-local function findTarget()
-	local closest = nil
-	local shortest = math.huge
-	local center = circle.AbsolutePosition + Vector2.new(80, 80)
+local MarkerText = Instance.new("TextLabel")
+MarkerText.Size = UDim2.fromScale(1, 1)
+MarkerText.BackgroundTransparency = 1
+MarkerText.Text = "✛"
+MarkerText.TextColor3 = Color3.fromRGB(255, 40, 40)
+MarkerText.TextStrokeTransparency = 0
+MarkerText.TextScaled = true
+MarkerText.Parent = Marker
 
-	for _, other in ipairs(Players:GetPlayers()) do
-		if other ~= player
-			and other:GetAttribute("AllowTracking") == true then
+-- Clear Target
+local function ClearTarget()
+    CurrentTarget = nil
+    Marker.Enabled = false
 
-			local character = other.Character
-			local head = character and character:FindFirstChild("Head")
-
-			if head then
-				local point, visible =
-					camera:WorldToViewportPoint(head.Position)
-
-				if visible and point.Z > 0 then
-					local distance = (
-						Vector2.new(point.X, point.Y) - center
-					).Magnitude
-
-					if distance <= 80 and distance < shortest then
-						shortest = distance
-						closest = head
-					end
-				end
-			end
-		end
-	end
-
-	return closest
+    if CurrentHighlight then
+        CurrentHighlight:Destroy()
+        CurrentHighlight = nil
+    end
 end
 
+-- Select Target
+local function SelectTarget(Player)
+    if CurrentTarget == Player then
+        return
+    end
+
+    ClearTarget()
+    CurrentTarget = Player
+
+    local Character = Player.Character
+    if not Character then return end
+
+    local Head = Character:FindFirstChild("Head")
+    if not Head then return end
+
+    Marker.Adornee = Head
+    Marker.Enabled = true
+
+    local Highlight = Instance.new("Highlight")
+    Highlight.Name = "KarrarTargetHighlight"
+    Highlight.Adornee = Character
+    Highlight.FillColor = Color3.fromRGB(255, 40, 40)
+    Highlight.OutlineColor = Color3.new(1, 1, 1)
+    Highlight.FillTransparency = 0.8
+    Highlight.Parent = GUI
+
+    CurrentHighlight = Highlight
+end
+
+-- FOV Controls
+local function UpdateFOV()
+    Circle.Size = UDim2.fromOffset(FOVRadius * 2, FOVRadius * 2)
+end
+
+Minus.Activated:Connect(function()
+    FOVRadius = math.max(50, FOVRadius - 25)
+    UpdateFOV()
+end)
+
+Plus.Activated:Connect(function()
+    FOVRadius = math.min(400, FOVRadius + 25)
+    UpdateFOV()
+end)
+
+Toggle.Activated:Connect(function()
+    Enabled = not Enabled
+    Toggle.Text = Enabled and "SYSTEM: ON" or "SYSTEM: OFF"
+    Circle.Visible = Enabled
+
+    if not Enabled then
+        ClearTarget()
+        Status.Text = "Target: Disabled"
+    end
+end)
+
+-- Main Tracking Loop
 RunService.RenderStepped:Connect(function()
-	if not enabled then
-		target = nil
-		return
-	end
+    Camera = workspace.CurrentCamera
 
-	if not target or not target.Parent then
-		target = findTarget()
-	end
+    local Viewport = Camera.ViewportSize
+    local Center = Vector2.new(
+        Viewport.X / 2,
+        Viewport.Y / 2
+    )
 
-	if target then
-		local desired = CFrame.lookAt(
-			camera.CFrame.Position,
-			target.Position
-		)
+    Circle.Position = UDim2.fromOffset(Center.X, Center.Y)
 
-		camera.CFrame = camera.CFrame:Lerp(desired, 0.18)
-	end
+    if not Enabled then return end
+
+    local BestPlayer = nil
+    local BestDistance = FOVRadius
+
+    -- Keep current target if still valid
+    if CurrentTarget then
+        local Character = CurrentTarget.Character
+        local Head = Character and Character:FindFirstChild("Head")
+
+        if Head then
+            local Position, Visible =
+                Camera:WorldToViewportPoint(Head.Position)
+
+            local Distance = (
+                Vector2.new(Position.X, Position.Y) - Center
+            ).Magnitude
+
+            if Visible and Position.Z > 0 and Distance <= FOVRadius then
+                BestPlayer = CurrentTarget
+            end
+        end
+    end
+
+    -- Find nearest target if needed
+    if not BestPlayer then
+        for _, Player in ipairs(Players:GetPlayers()) do
+            if Player ~= LocalPlayer then
+                local Character = Player.Character
+                local Head = Character and Character:FindFirstChild("Head")
+                local Humanoid = Character and
+                    Character:FindFirstChildOfClass("Humanoid")
+
+                if Head and Humanoid and Humanoid.Health > 0 then
+                    local Position, Visible =
+                        Camera:WorldToViewportPoint(Head.Position)
+
+                    if Visible and Position.Z > 0 then
+                        local Distance = (
+                            Vector2.new(Position.X, Position.Y) - Center
+                        ).Magnitude
+
+                        if Distance <= BestDistance then
+                            BestDistance = Distance
+                            BestPlayer = Player
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if BestPlayer then
+        SelectTarget(BestPlayer)
+        Status.Text = "Target: " .. BestPlayer.Name
+    else
+        ClearTarget()
+        Status.Text = "Target: None"
+    end
 end)
+
+Players.PlayerRemoving:Connect(function(Player)
+    if Player == CurrentTarget then
+        ClearTarget()
+    end
+end)
+
+UpdateFOV()
+
+print("Karrar Head Tracker V2 Loaded")
