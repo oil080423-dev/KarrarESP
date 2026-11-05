@@ -1,1 +1,226 @@
+-- KARRAR SOFT AIM V1
+-- For your own Roblox Studio game
 
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local Player = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- SETTINGS
+local AIM_ENABLED = true
+local SMOOTHNESS = 12
+local CIRCLE_SIZE = 190
+local TEAM_CHECK = false
+
+-- GUI
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "KARRAR_SOFT_AIM"
+GUI.IgnoreGuiInset = true
+GUI.ResetOnSpawn = false
+GUI.Parent = Player:WaitForChild("PlayerGui")
+
+-- AIM CIRCLE
+local Circle = Instance.new("Frame")
+Circle.Name = "AimCircle"
+Circle.Size = UDim2.fromOffset(CIRCLE_SIZE, CIRCLE_SIZE)
+Circle.Position = UDim2.new(0.5, -CIRCLE_SIZE/2, 0.5, -CIRCLE_SIZE/2)
+Circle.BackgroundTransparency = 1
+Circle.BorderSizePixel = 0
+Circle.Active = true
+Circle.Parent = GUI
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(1, 0)
+Corner.Parent = Circle
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = Color3.fromRGB(255, 45, 45)
+Stroke.Thickness = 2
+Stroke.Transparency = 0.15
+Stroke.Parent = Circle
+
+-- TOGGLE BUTTON
+local Button = Instance.new("TextButton")
+Button.Size = UDim2.fromOffset(115, 38)
+Button.Position = UDim2.new(0, 15, 0, 100)
+Button.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Button.TextColor3 = Color3.new(1, 1, 1)
+Button.TextSize = 14
+Button.Text = "AIM: ON"
+Button.Parent = GUI
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.Parent = Button
+
+Button.MouseButton1Click:Connect(function()
+    AIM_ENABLED = not AIM_ENABLED
+    Button.Text = AIM_ENABLED and "AIM: ON" or "AIM: OFF"
+    Stroke.Color = AIM_ENABLED
+        and Color3.fromRGB(255, 45, 45)
+        or Color3.fromRGB(120, 120, 120)
+end)
+
+-- DRAG CIRCLE
+local Dragging = false
+local DragStart
+local StartPosition
+
+Circle.InputBegan:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+    or Input.UserInputType == Enum.UserInputType.Touch then
+
+        Dragging = true
+        DragStart = Input.Position
+        StartPosition = Circle.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(Input)
+    if Dragging and (
+        Input.UserInputType == Enum.UserInputType.MouseMovement
+        or Input.UserInputType == Enum.UserInputType.Touch
+    ) then
+
+        local Delta = Input.Position - DragStart
+
+        Circle.Position = UDim2.new(
+            StartPosition.X.Scale,
+            StartPosition.X.Offset + Delta.X,
+            StartPosition.Y.Scale,
+            StartPosition.Y.Offset + Delta.Y
+        )
+    end
+end)
+
+UIS.InputEnded:Connect(function(Input)
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+    or Input.UserInputType == Enum.UserInputType.Touch then
+        Dragging = false
+    end
+end)
+
+-- TARGET CHECK
+local LockedTarget = nil
+
+local function IsInsideCircle(Character)
+    local Center = Circle.AbsolutePosition + Circle.AbsoluteSize / 2
+    local Radius = Circle.AbsoluteSize.X / 2
+
+    local Parts = {
+        Character:FindFirstChild("HumanoidRootPart"),
+        Character:FindFirstChild("UpperTorso"),
+        Character:FindFirstChild("Torso"),
+        Character:FindFirstChild("Head")
+    }
+
+    for _, Part in ipairs(Parts) do
+        if Part then
+            local Point, Visible =
+                Camera:WorldToViewportPoint(Part.Position)
+
+            if Visible then
+                local ScreenPosition = Vector2.new(Point.X, Point.Y)
+
+                if (ScreenPosition - Center).Magnitude <= Radius then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+local function GetTarget()
+    if LockedTarget then
+        local Character = LockedTarget.Character
+
+        if Character and IsInsideCircle(Character) then
+            local Head = Character:FindFirstChild("Head")
+            local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+
+            if Head and Humanoid and Humanoid.Health > 0 then
+                return Head
+            end
+        end
+
+        LockedTarget = nil
+    end
+
+    local BestTarget = nil
+    local BestDistance = math.huge
+
+    local Center = Circle.AbsolutePosition + Circle.AbsoluteSize / 2
+
+    for _, OtherPlayer in ipairs(Players:GetPlayers()) do
+        if OtherPlayer ~= Player then
+
+            local Character = OtherPlayer.Character
+            local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+            local Head = Character and Character:FindFirstChild("Head")
+
+            local SameTeam = TEAM_CHECK
+                and Player.Team ~= nil
+                and OtherPlayer.Team == Player.Team
+
+            if Character and Humanoid and Head
+            and Humanoid.Health > 0
+            and not SameTeam
+            and IsInsideCircle(Character) then
+
+                local Point, Visible =
+                    Camera:WorldToViewportPoint(Head.Position)
+
+                if Visible then
+                    local Distance =
+                        (Vector2.new(Point.X, Point.Y) - Center).Magnitude
+
+                    if Distance < BestDistance then
+                        BestDistance = Distance
+                        BestTarget = OtherPlayer
+                    end
+                end
+            end
+        end
+    end
+
+    LockedTarget = BestTarget
+
+    if BestTarget and BestTarget.Character then
+        return BestTarget.Character:FindFirstChild("Head")
+    end
+end
+
+-- SMOOTH AIM
+RunService:BindToRenderStep(
+    "KARRAR_SOFT_AIM",
+    Enum.RenderPriority.Camera.Value + 1,
+    function(DeltaTime)
+
+        if not AIM_ENABLED then
+            LockedTarget = nil
+            return
+        end
+
+        local TargetHead = GetTarget()
+
+        if TargetHead then
+            local CurrentCamera = workspace.CurrentCamera
+
+            local Goal = CFrame.lookAt(
+                CurrentCamera.CFrame.Position,
+                TargetHead.Position
+            )
+
+            local Alpha = 1 - math.exp(-SMOOTHNESS * DeltaTime)
+
+            CurrentCamera.CFrame =
+                CurrentCamera.CFrame:Lerp(Goal, Alpha)
+        end
+    end
+)
+
+print("KARRAR SOFT AIM V1 LOADED")
