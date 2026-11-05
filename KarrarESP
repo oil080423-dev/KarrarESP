@@ -1,36 +1,34 @@
--- KARRAR RED ESP
+-- KARRAR RED ESP V2
 
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-local function AddRedESP(player)
+local function TrackPlayer(player)
     if player == LocalPlayer then return end
 
-    local function Setup(character)
-        local old = character:FindFirstChild("KARRAR_RED")
-        if old then old:Destroy() end
-
+    local function Apply(character)
         local highlight = Instance.new("Highlight")
-        highlight.Name = "KARRAR_RED"
+        highlight.Name = "KARRAR_ESP"
+        highlight.Adornee = character
         highlight.FillColor = Color3.fromRGB(255, 0, 0)
         highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
-        highlight.FillTransparency = 0.2
+        highlight.FillTransparency = 0.15
         highlight.OutlineTransparency = 0
         highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         highlight.Parent = character
     end
 
     if player.Character then
-        Setup(player.Character)
+        Apply(player.Character)
     end
 
-    player.CharacterAdded:Connect(Setup)
+    player.CharacterAdded:Connect(Apply)
 end
 
 for _, player in ipairs(Players:GetPlayers()) do
-    AddRedESP(player)
+    TrackPlayer(player)
 end
 
-Players.PlayerAdded:Connect(AddRedESP)
+Players.PlayerAdded:Connect(TrackPlayer)
 
-print("KARRAR RED ESP LOADED")
+print("KARRAR RED ESP V2 ACTIVE")
