@@ -1,172 +1,56 @@
--- KARRAR AIM V2
--- Roblox Studio - LocalScript
+-- KARRAR SOFT AIM V2
+-- Roblox Studio | NPC Targeting
 
 local Players = game:GetService("Players")
-local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
-local Player = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
--- SETTINGS
-local AIM_ENABLED = true
-local SMOOTHNESS = 16
-local CIRCLE_SIZE = 130
-local LockedTarget = nil
+local AIM_RANGE = 180
+local SMOOTHNESS = 0.18
+local LOCK_STRENGTH = 0.85
 
--- GUI
-local GUI = Instance.new("ScreenGui")
-GUI.Name = "KARRAR_AIM_V2"
-GUI.ResetOnSpawn = false
-GUI.IgnoreGuiInset = true
-GUI.Parent = Player:WaitForChild("PlayerGui")
+local function GetClosestNPC()
+    local closest = nil
+    local shortestDistance = AIM_RANGE
 
--- FIXED AIM CIRCLE
-local Circle = Instance.new("Frame")
-Circle.Name = "AimCircle"
-Circle.Size = UDim2.fromOffset(CIRCLE_SIZE, CIRCLE_SIZE)
-Circle.Position = UDim2.new(0.5, 0, 0.5, 0)
-Circle.AnchorPoint = Vector2.new(0.5, 0.5)
-Circle.BackgroundTransparency = 1
-Circle.Parent = GUI
+    for _, npc in ipairs(workspace:GetChildren()) do
+        local humanoid = npc:FindFirstChildOfClass("Humanoid")
+        local head = npc:FindFirstChild("Head")
 
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = UDim.new(1, 0)
-Corner.Parent = Circle
+        if humanoid and head and humanoid.Health > 0 then
+            local screenPos, visible =
+                Camera:WorldToViewportPoint(head.Position)
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(160, 80, 255)
-Stroke.Thickness = 2
-Stroke.Transparency = 0.1
-Stroke.Parent = Circle
+            if visible then
+                local center = Camera.ViewportSize / 2
+                local distance =
+                    (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
 
--- TOGGLE BUTTON
-local Button = Instance.new("TextButton")
-Button.Name = "KARRAR_TOGGLE"
-Button.Size = UDim2.fromOffset(125, 42)
-Button.Position = UDim2.new(0, 15, 0, 100)
-Button.BackgroundColor3 = Color3.fromRGB(130, 60, 220)
-Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-Button.TextSize = 15
-Button.Text = "tik:omzve"
-Button.Parent = GUI
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closest = head
+                end
+            end
+        end
+    end
 
-local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 9)
-ButtonCorner.Parent = Button
+    return closest
+end
 
-local Status = Instance.new("TextLabel")
-Status.Size = UDim2.fromOffset(125, 20)
-Status.Position = UDim2.new(0, 15, 0, 145)
-Status.BackgroundTransparency = 1
-Status.TextColor3 = Color3.fromRGB(190, 150, 255)
-Status.TextSize = 12
-Status.Text = "AIM: ON"
-Status.Parent = GUI
+RunService.RenderStepped:Connect(function()
+    local target = GetClosestNPC()
 
-Button.Activated:Connect(function()
-    AIM_ENABLED = not AIM_ENABLED
-    Status.Text = AIM_ENABLED and "AIM: ON" or "AIM: OFF"
-    Stroke.Transparency = AIM_ENABLED and 0.1 or 0.7
-    LockedTarget = nil
+    if target then
+        local current = Camera.CFrame
+        local desired = CFrame.lookAt(
+            Camera.CFrame.Position,
+            target.Position
+        )
+
+        Camera.CFrame = current:Lerp(
+            desired,
+            SMOOTHNESS * LOCK_STRENGTH
+        )
+    end
 end)
-
--- CHECK TARGET INSIDE CIRCLE
-local function IsInsideCircle(Character, Camera)
-    local Center = Circle.AbsolutePosition + Circle.AbsoluteSize / 2
-    local Radius = CIRCLE_SIZE / 2
-
-    local Parts = {
-        Character:FindFirstChild("HumanoidRootPart"),
-        Character:FindFirstChild("UpperTorso"),
-        Character:FindFirstChild("Torso"),
-        Character:FindFirstChild("Head")
-    }
-
-    for _, Part in ipairs(Parts) do
-        if Part then
-            local Point, Visible =
-                Camera:WorldToViewportPoint(Part.Position)
-
-            if Visible then
-                local ScreenPosition = Vector2.new(Point.X, Point.Y)
-
-                if (ScreenPosition - Center).Magnitude <= Radius then
-                    return true
-                end
-            end
-        end
-    end
-
-    return false
-end
-
--- FIND TARGET
-local function GetTarget(Camera)
-    local BestTarget = nil
-    local BestDistance = math.huge
-
-    local Center = Circle.AbsolutePosition + Circle.AbsoluteSize / 2
-
-    for _, OtherPlayer in ipairs(Players:GetPlayers()) do
-        if OtherPlayer ~= Player then
-            local Character = OtherPlayer.Character
-
-            if Character then
-                local Humanoid =
-                    Character:FindFirstChildOfClass("Humanoid")
-
-                local Head = Character:FindFirstChild("Head")
-
-                if Humanoid and Head
-                and Humanoid.Health > 0
-                and IsInsideCircle(Character, Camera) then
-
-                    local Point, Visible =
-                        Camera:WorldToViewportPoint(Head.Position)
-
-                    if Visible then
-                        local Distance =
-                            (Vector2.new(Point.X, Point.Y) - Center).Magnitude
-
-                        if Distance < BestDistance then
-                            BestDistance = Distance
-                            BestTarget = Head
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    return BestTarget
-end
-
--- AIM UPDATE
-RunService:BindToRenderStep(
-    "KARRAR_AIM_V2",
-    Enum.RenderPriority.Camera.Value + 1,
-    function(DeltaTime)
-
-        local Camera = workspace.CurrentCamera
-
-        if not AIM_ENABLED or not Camera then
-            LockedTarget = nil
-            return
-        end
-
-        local TargetHead = GetTarget(Camera)
-
-        if TargetHead then
-            local Goal = CFrame.lookAt(
-                Camera.CFrame.Position,
-                TargetHead.Position
-            )
-
-            local Alpha = 1 - math.exp(-SMOOTHNESS * DeltaTime)
-
-            Camera.CFrame = Camera.CFrame:Lerp(Goal, Alpha)
-        end
-    end
-)
-
-print("KARRAR AIM V2 LOADED")
