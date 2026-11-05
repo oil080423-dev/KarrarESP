@@ -3,7 +3,7 @@
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-local function HighlightPlayer(player)
+local function AddRedESP(player)
     if player == LocalPlayer then return end
 
     local function Setup(character)
@@ -14,9 +14,9 @@ local function HighlightPlayer(player)
         highlight.Name = "KARRAR_RED"
         highlight.FillColor = Color3.fromRGB(255, 0, 0)
         highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
-        highlight.FillTransparency = 0.4
+        highlight.FillTransparency = 0.2
         highlight.OutlineTransparency = 0
-        highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         highlight.Parent = character
     end
 
@@ -28,9 +28,9 @@ local function HighlightPlayer(player)
 end
 
 for _, player in ipairs(Players:GetPlayers()) do
-    HighlightPlayer(player)
+    AddRedESP(player)
 end
 
-Players.PlayerAdded:Connect(HighlightPlayer)
+Players.PlayerAdded:Connect(AddRedESP)
 
 print("KARRAR RED ESP LOADED")
