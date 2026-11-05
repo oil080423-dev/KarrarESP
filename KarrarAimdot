@@ -1,37 +1,152 @@
+--========================================
+-- TARGET SYSTEM - GUI
+-- Version 1.0
+--========================================
+
+-- Services
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
 
+-- Player
 local LocalPlayer = Players.LocalPlayer
-local Target = nil
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-local function GetHead(player)
-    local character = player.Character
-    if not character then return nil end
+--========================================
+-- SETTINGS
+--========================================
 
-    return character:FindFirstChild("Head")
+local CIRCLE_SIZE = 160
+local Enabled = true
+
+--========================================
+-- CLEAN OLD GUI
+--========================================
+
+local OldGui = PlayerGui:FindFirstChild("TargetSystem")
+
+if OldGui then
+    OldGui:Destroy()
 end
 
-local function SetTarget(player)
-    if player == LocalPlayer then return end
+--========================================
+-- SCREEN GUI
+--========================================
 
-    local head = GetHead(player)
-    if head then
-        Target = player
+local ScreenGui = Instance.new("ScreenGui")
+
+ScreenGui.Name = "TargetSystem"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = PlayerGui
+
+--========================================
+-- RANGE CIRCLE
+--========================================
+
+local Circle = Instance.new("Frame")
+
+Circle.Name = "RangeCircle"
+Circle.Size = UDim2.fromOffset(
+    CIRCLE_SIZE,
+    CIRCLE_SIZE
+)
+
+Circle.Position = UDim2.new(
+    0.5,
+    -CIRCLE_SIZE / 2,
+    0.5,
+    -CIRCLE_SIZE / 2
+)
+
+Circle.BackgroundTransparency = 1
+Circle.BorderSizePixel = 0
+Circle.Visible = true
+Circle.Parent = ScreenGui
+
+-- Circle Corner
+local Corner = Instance.new("UICorner")
+
+Corner.CornerRadius = UDim.new(1, 0)
+Corner.Parent = Circle
+
+-- Circle Border
+local Stroke = Instance.new("UIStroke")
+
+Stroke.Thickness = 2
+Stroke.Color = Color3.fromRGB(255, 255, 255)
+Stroke.Transparency = 0
+Stroke.Parent = Circle
+
+--========================================
+-- ON / OFF BUTTON
+--========================================
+
+local Button = Instance.new("TextButton")
+
+Button.Name = "ToggleButton"
+Button.Size = UDim2.fromOffset(120, 45)
+
+Button.Position = UDim2.new(
+    0.5,
+    -60,
+    0.8,
+    0
+)
+
+Button.BackgroundColor3 =
+    Color3.fromRGB(40, 180, 70)
+
+Button.Text = "ON"
+Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+Button.TextSize = 18
+Button.Font = Enum.Font.GothamBold
+
+Button.BorderSizePixel = 0
+Button.Parent = ScreenGui
+
+-- Button Corner
+local ButtonCorner = Instance.new("UICorner")
+
+ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.Parent = Button
+
+--========================================
+-- TOGGLE SYSTEM
+--========================================
+
+local function UpdateButton()
+
+    Circle.Visible = Enabled
+
+    if Enabled then
+
+        Button.Text = "ON"
+
+        Button.BackgroundColor3 =
+            Color3.fromRGB(40, 180, 70)
+
+    else
+
+        Button.Text = "OFF"
+
+        Button.BackgroundColor3 =
+            Color3.fromRGB(180, 40, 40)
+
     end
 end
 
-RunService.RenderStepped:Connect(function()
-    if not Target then return end
+-- Button Click
+Button.Activated:Connect(function()
 
-    local head = GetHead(Target)
+    Enabled = not Enabled
 
-    if not head then
-        Target = nil
-        return
-    end
+    UpdateButton()
 
-    local HeadPosition = head.Position
-
-    -- موقع منتصف الرأس
-    -- HeadPosition
 end)
+
+--========================================
+-- INITIALIZE
+--========================================
+
+UpdateButton()
+
+print("TargetSystem GUI Loaded Successfully!")
