@@ -1,4 +1,3 @@
-
 -- KARRAR SOFT AIM V3
 -- NPC Targeting System
 
@@ -74,10 +73,8 @@ RunService:BindToRenderStep(
     "KarrarSoftAim",
     Enum.RenderPriority.Camera.Value + 1,
     function(dt)
-        Circle.Position = UDim2.fromOffset(
-            Camera.ViewportSize.X / 2,
-            Camera.ViewportSize.Y / 2
-        )
+
+        Circle.Position = UDim2.fromScale(0.5, 0.5)
 
         if not CONFIG.Enabled then
             return
