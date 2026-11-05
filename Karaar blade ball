@@ -1,0 +1,52 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local Player = Players.LocalPlayer
+
+local PARRY_DISTANCE = 18
+local PARRY_TIME = 0.12
+local COOLDOWN = 0.25
+
+local lastParry = 0
+
+local function getBall()
+    local ball = workspace:FindFirstChild("Ball")
+    return ball
+end
+
+local function parry()
+    if tick() - lastParry < COOLDOWN then
+        return
+    end
+
+    lastParry = tick()
+
+    -- Connect this to your game's legitimate parry mechanic.
+    print("PARRY!")
+end
+
+RunService.Heartbeat:Connect(function()
+    local character = Player.Character
+    local ball = getBall()
+
+    if not character or not ball then return end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local distance = (ball.Position - root.Position).Magnitude
+    local velocity = ball.AssemblyLinearVelocity
+
+    if distance > PARRY_DISTANCE then return end
+
+    local direction = (root.Position - ball.Position).Unit
+    local approachingSpeed = velocity:Dot(direction)
+
+    if approachingSpeed <= 0 then return end
+
+    local impactTime = distance / approachingSpeed
+
+    if impactTime <= PARRY_TIME then
+        parry()
+    end
+end)
