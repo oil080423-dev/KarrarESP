@@ -1,34 +1,32 @@
--- KARRAR SOFT AIM V1
--- For your own Roblox Studio game
+-- KARRAR AIM V2
+-- Roblox Studio - LocalScript
 
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 
 -- SETTINGS
 local AIM_ENABLED = true
-local SMOOTHNESS = 12
-local CIRCLE_SIZE = 190
-local TEAM_CHECK = false
+local SMOOTHNESS = 16
+local CIRCLE_SIZE = 130
+local LockedTarget = nil
 
 -- GUI
 local GUI = Instance.new("ScreenGui")
-GUI.Name = "KARRAR_SOFT_AIM"
-GUI.IgnoreGuiInset = true
+GUI.Name = "KARRAR_AIM_V2"
 GUI.ResetOnSpawn = false
+GUI.IgnoreGuiInset = true
 GUI.Parent = Player:WaitForChild("PlayerGui")
 
--- AIM CIRCLE
+-- FIXED AIM CIRCLE
 local Circle = Instance.new("Frame")
 Circle.Name = "AimCircle"
 Circle.Size = UDim2.fromOffset(CIRCLE_SIZE, CIRCLE_SIZE)
-Circle.Position = UDim2.new(0.5, -CIRCLE_SIZE/2, 0.5, -CIRCLE_SIZE/2)
+Circle.Position = UDim2.new(0.5, 0, 0.5, 0)
+Circle.AnchorPoint = Vector2.new(0.5, 0.5)
 Circle.BackgroundTransparency = 1
-Circle.BorderSizePixel = 0
-Circle.Active = true
 Circle.Parent = GUI
 
 local Corner = Instance.new("UICorner")
@@ -36,78 +34,46 @@ Corner.CornerRadius = UDim.new(1, 0)
 Corner.Parent = Circle
 
 local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(255, 45, 45)
+Stroke.Color = Color3.fromRGB(160, 80, 255)
 Stroke.Thickness = 2
-Stroke.Transparency = 0.15
+Stroke.Transparency = 0.1
 Stroke.Parent = Circle
 
 -- TOGGLE BUTTON
 local Button = Instance.new("TextButton")
-Button.Size = UDim2.fromOffset(115, 38)
+Button.Name = "KARRAR_TOGGLE"
+Button.Size = UDim2.fromOffset(125, 42)
 Button.Position = UDim2.new(0, 15, 0, 100)
-Button.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-Button.TextColor3 = Color3.new(1, 1, 1)
-Button.TextSize = 14
-Button.Text = "AIM: ON"
+Button.BackgroundColor3 = Color3.fromRGB(130, 60, 220)
+Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+Button.TextSize = 15
+Button.Text = "tik:omzve"
 Button.Parent = GUI
 
 local ButtonCorner = Instance.new("UICorner")
-ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.CornerRadius = UDim.new(0, 9)
 ButtonCorner.Parent = Button
 
-Button.MouseButton1Click:Connect(function()
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.fromOffset(125, 20)
+Status.Position = UDim2.new(0, 15, 0, 145)
+Status.BackgroundTransparency = 1
+Status.TextColor3 = Color3.fromRGB(190, 150, 255)
+Status.TextSize = 12
+Status.Text = "AIM: ON"
+Status.Parent = GUI
+
+Button.Activated:Connect(function()
     AIM_ENABLED = not AIM_ENABLED
-    Button.Text = AIM_ENABLED and "AIM: ON" or "AIM: OFF"
-    Stroke.Color = AIM_ENABLED
-        and Color3.fromRGB(255, 45, 45)
-        or Color3.fromRGB(120, 120, 120)
+    Status.Text = AIM_ENABLED and "AIM: ON" or "AIM: OFF"
+    Stroke.Transparency = AIM_ENABLED and 0.1 or 0.7
+    LockedTarget = nil
 end)
 
--- DRAG CIRCLE
-local Dragging = false
-local DragStart
-local StartPosition
-
-Circle.InputBegan:Connect(function(Input)
-    if Input.UserInputType == Enum.UserInputType.MouseButton1
-    or Input.UserInputType == Enum.UserInputType.Touch then
-
-        Dragging = true
-        DragStart = Input.Position
-        StartPosition = Circle.Position
-    end
-end)
-
-UIS.InputChanged:Connect(function(Input)
-    if Dragging and (
-        Input.UserInputType == Enum.UserInputType.MouseMovement
-        or Input.UserInputType == Enum.UserInputType.Touch
-    ) then
-
-        local Delta = Input.Position - DragStart
-
-        Circle.Position = UDim2.new(
-            StartPosition.X.Scale,
-            StartPosition.X.Offset + Delta.X,
-            StartPosition.Y.Scale,
-            StartPosition.Y.Offset + Delta.Y
-        )
-    end
-end)
-
-UIS.InputEnded:Connect(function(Input)
-    if Input.UserInputType == Enum.UserInputType.MouseButton1
-    or Input.UserInputType == Enum.UserInputType.Touch then
-        Dragging = false
-    end
-end)
-
--- TARGET CHECK
-local LockedTarget = nil
-
-local function IsInsideCircle(Character)
+-- CHECK TARGET INSIDE CIRCLE
+local function IsInsideCircle(Character, Camera)
     local Center = Circle.AbsolutePosition + Circle.AbsoluteSize / 2
-    local Radius = Circle.AbsoluteSize.X / 2
+    local Radius = CIRCLE_SIZE / 2
 
     local Parts = {
         Character:FindFirstChild("HumanoidRootPart"),
@@ -134,22 +100,8 @@ local function IsInsideCircle(Character)
     return false
 end
 
-local function GetTarget()
-    if LockedTarget then
-        local Character = LockedTarget.Character
-
-        if Character and IsInsideCircle(Character) then
-            local Head = Character:FindFirstChild("Head")
-            local Humanoid = Character:FindFirstChildOfClass("Humanoid")
-
-            if Head and Humanoid and Humanoid.Health > 0 then
-                return Head
-            end
-        end
-
-        LockedTarget = nil
-    end
-
+-- FIND TARGET
+local function GetTarget(Camera)
     local BestTarget = nil
     local BestDistance = math.huge
 
@@ -157,70 +109,64 @@ local function GetTarget()
 
     for _, OtherPlayer in ipairs(Players:GetPlayers()) do
         if OtherPlayer ~= Player then
-
             local Character = OtherPlayer.Character
-            local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
-            local Head = Character and Character:FindFirstChild("Head")
 
-            local SameTeam = TEAM_CHECK
-                and Player.Team ~= nil
-                and OtherPlayer.Team == Player.Team
+            if Character then
+                local Humanoid =
+                    Character:FindFirstChildOfClass("Humanoid")
 
-            if Character and Humanoid and Head
-            and Humanoid.Health > 0
-            and not SameTeam
-            and IsInsideCircle(Character) then
+                local Head = Character:FindFirstChild("Head")
 
-                local Point, Visible =
-                    Camera:WorldToViewportPoint(Head.Position)
+                if Humanoid and Head
+                and Humanoid.Health > 0
+                and IsInsideCircle(Character, Camera) then
 
-                if Visible then
-                    local Distance =
-                        (Vector2.new(Point.X, Point.Y) - Center).Magnitude
+                    local Point, Visible =
+                        Camera:WorldToViewportPoint(Head.Position)
 
-                    if Distance < BestDistance then
-                        BestDistance = Distance
-                        BestTarget = OtherPlayer
+                    if Visible then
+                        local Distance =
+                            (Vector2.new(Point.X, Point.Y) - Center).Magnitude
+
+                        if Distance < BestDistance then
+                            BestDistance = Distance
+                            BestTarget = Head
+                        end
                     end
                 end
             end
         end
     end
 
-    LockedTarget = BestTarget
-
-    if BestTarget and BestTarget.Character then
-        return BestTarget.Character:FindFirstChild("Head")
-    end
+    return BestTarget
 end
 
--- SMOOTH AIM
+-- AIM UPDATE
 RunService:BindToRenderStep(
-    "KARRAR_SOFT_AIM",
+    "KARRAR_AIM_V2",
     Enum.RenderPriority.Camera.Value + 1,
     function(DeltaTime)
 
-        if not AIM_ENABLED then
+        local Camera = workspace.CurrentCamera
+
+        if not AIM_ENABLED or not Camera then
             LockedTarget = nil
             return
         end
 
-        local TargetHead = GetTarget()
+        local TargetHead = GetTarget(Camera)
 
         if TargetHead then
-            local CurrentCamera = workspace.CurrentCamera
-
             local Goal = CFrame.lookAt(
-                CurrentCamera.CFrame.Position,
+                Camera.CFrame.Position,
                 TargetHead.Position
             )
 
             local Alpha = 1 - math.exp(-SMOOTHNESS * DeltaTime)
 
-            CurrentCamera.CFrame =
-                CurrentCamera.CFrame:Lerp(Goal, Alpha)
+            Camera.CFrame = Camera.CFrame:Lerp(Goal, Alpha)
         end
     end
 )
 
-print("KARRAR SOFT AIM V1 LOADED")
+print("KARRAR AIM V2 LOADED")
