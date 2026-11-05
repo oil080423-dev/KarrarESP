@@ -1,152 +1,120 @@
---========================================
--- TARGET SYSTEM - GUI
--- Version 1.0
---========================================
-
--- Services
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Player
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+local consent = ReplicatedStorage:WaitForChild("TrackingConsent")
 
---========================================
--- SETTINGS
---========================================
+local enabled = false
+local allowed = false
+local target = nil
 
-local CIRCLE_SIZE = 160
-local Enabled = true
+local gui = Instance.new("ScreenGui")
+gui.Name = "TrackingSystem"
+gui.ResetOnSpawn = false
+gui.Parent = player:WaitForChild("PlayerGui")
 
---========================================
--- CLEAN OLD GUI
---========================================
+local circle = Instance.new("Frame")
+circle.Size = UDim2.fromOffset(160, 160)
+circle.Position = UDim2.new(0.5, -80, 0.5, -80)
+circle.BackgroundTransparency = 1
+circle.Parent = gui
 
-local OldGui = PlayerGui:FindFirstChild("TargetSystem")
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(1, 0)
+corner.Parent = circle
 
-if OldGui then
-    OldGui:Destroy()
+local stroke = Instance.new("UIStroke")
+stroke.Thickness = 2
+stroke.Color = Color3.fromRGB(255, 0, 0)
+stroke.Parent = circle
+
+local function makeButton(text, position)
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.fromOffset(150, 40)
+	button.Position = position
+	button.Text = text
+	button.TextScaled = true
+	button.Parent = gui
+	return button
 end
 
---========================================
--- SCREEN GUI
---========================================
-
-local ScreenGui = Instance.new("ScreenGui")
-
-ScreenGui.Name = "TargetSystem"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.IgnoreGuiInset = true
-ScreenGui.Parent = PlayerGui
-
---========================================
--- RANGE CIRCLE
---========================================
-
-local Circle = Instance.new("Frame")
-
-Circle.Name = "RangeCircle"
-Circle.Size = UDim2.fromOffset(
-    CIRCLE_SIZE,
-    CIRCLE_SIZE
+local trackButton = makeButton(
+	"TRACK: OFF",
+	UDim2.new(0.5, -75, 1, -100)
 )
 
-Circle.Position = UDim2.new(
-    0.5,
-    -CIRCLE_SIZE / 2,
-    0.5,
-    -CIRCLE_SIZE / 2
+local consentButton = makeButton(
+	"ALLOW: OFF",
+	UDim2.new(0.5, -75, 1, -150)
 )
 
-Circle.BackgroundTransparency = 1
-Circle.BorderSizePixel = 0
-Circle.Visible = true
-Circle.Parent = ScreenGui
-
--- Circle Corner
-local Corner = Instance.new("UICorner")
-
-Corner.CornerRadius = UDim.new(1, 0)
-Corner.Parent = Circle
-
--- Circle Border
-local Stroke = Instance.new("UIStroke")
-
-Stroke.Thickness = 2
-Stroke.Color = Color3.fromRGB(255, 255, 255)
-Stroke.Transparency = 0
-Stroke.Parent = Circle
-
---========================================
--- ON / OFF BUTTON
---========================================
-
-local Button = Instance.new("TextButton")
-
-Button.Name = "ToggleButton"
-Button.Size = UDim2.fromOffset(120, 45)
-
-Button.Position = UDim2.new(
-    0.5,
-    -60,
-    0.8,
-    0
-)
-
-Button.BackgroundColor3 =
-    Color3.fromRGB(40, 180, 70)
-
-Button.Text = "ON"
-Button.TextColor3 = Color3.fromRGB(255, 255, 255)
-Button.TextSize = 18
-Button.Font = Enum.Font.GothamBold
-
-Button.BorderSizePixel = 0
-Button.Parent = ScreenGui
-
--- Button Corner
-local ButtonCorner = Instance.new("UICorner")
-
-ButtonCorner.CornerRadius = UDim.new(0, 8)
-ButtonCorner.Parent = Button
-
---========================================
--- TOGGLE SYSTEM
---========================================
-
-local function UpdateButton()
-
-    Circle.Visible = Enabled
-
-    if Enabled then
-
-        Button.Text = "ON"
-
-        Button.BackgroundColor3 =
-            Color3.fromRGB(40, 180, 70)
-
-    else
-
-        Button.Text = "OFF"
-
-        Button.BackgroundColor3 =
-            Color3.fromRGB(180, 40, 40)
-
-    end
-end
-
--- Button Click
-Button.Activated:Connect(function()
-
-    Enabled = not Enabled
-
-    UpdateButton()
-
+consentButton.Activated:Connect(function()
+	allowed = not allowed
+	consent:FireServer(allowed)
+	consentButton.Text = allowed and "ALLOW: ON" or "ALLOW: OFF"
 end)
 
---========================================
--- INITIALIZE
---========================================
+trackButton.Activated:Connect(function()
+	enabled = not enabled
+	target = nil
 
-UpdateButton()
+	trackButton.Text = enabled and "TRACK: ON" or "TRACK: OFF"
+	stroke.Color = enabled
+		and Color3.fromRGB(0, 255, 0)
+		or Color3.fromRGB(255, 0, 0)
+end)
 
-print("TargetSystem GUI Loaded Successfully!")
+local function findTarget()
+	local closest = nil
+	local shortest = math.huge
+	local center = circle.AbsolutePosition + Vector2.new(80, 80)
+
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player
+			and other:GetAttribute("AllowTracking") == true then
+
+			local character = other.Character
+			local head = character and character:FindFirstChild("Head")
+
+			if head then
+				local point, visible =
+					camera:WorldToViewportPoint(head.Position)
+
+				if visible and point.Z > 0 then
+					local distance = (
+						Vector2.new(point.X, point.Y) - center
+					).Magnitude
+
+					if distance <= 80 and distance < shortest then
+						shortest = distance
+						closest = head
+					end
+				end
+			end
+		end
+	end
+
+	return closest
+end
+
+RunService.RenderStepped:Connect(function()
+	if not enabled then
+		target = nil
+		return
+	end
+
+	if not target or not target.Parent then
+		target = findTarget()
+	end
+
+	if target then
+		local desired = CFrame.lookAt(
+			camera.CFrame.Position,
+			target.Position
+		)
+
+		camera.CFrame = camera.CFrame:Lerp(desired, 0.18)
+	end
+end)
