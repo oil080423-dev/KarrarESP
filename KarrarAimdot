@@ -1,41 +1,68 @@
--- KARRAR ESP V1.0
+-- KARRAR KNIFE PROJECT
+-- V1.0
 -- Roblox Studio - LocalScript
 
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
 local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
 
-local ESPEnabled = false
-local ESPColor = Color3.fromRGB(170, 70, 255)
+local FOV_RADIUS = 150
+local MAX_DISTANCE = 300
 
-local ESPObjects = {}
+local ESP_COLOR = Color3.fromRGB(170, 70, 255)
+local FOV_COLOR = Color3.fromRGB(255, 0, 0)
+
+local Enabled = true
+local Highlights = {}
 
 -- GUI
 local GUI = Instance.new("ScreenGui")
-GUI.Name = "KarrarESP"
+GUI.Name = "KarrarKnifeSystem"
 GUI.ResetOnSpawn = false
-GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
+GUI.Parent = LocalPlayer.PlayerGui
 
-local Button = Instance.new("TextButton")
-Button.Name = "ESPButton"
-Button.Size = UDim2.fromOffset(150, 45)
-Button.Position = UDim2.new(0.5, -75, 0.85, 0)
-Button.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-Button.TextColor3 = Color3.new(1, 1, 1)
-Button.TextScaled = true
-Button.Text = "ESP : OFF"
-Button.Parent = GUI
+-- RED FOV
+local Circle = Instance.new("Frame")
+Circle.Size = UDim2.fromOffset(
+    FOV_RADIUS * 2,
+    FOV_RADIUS * 2
+)
+Circle.AnchorPoint = Vector2.new(0.5, 0.5)
+Circle.Position = UDim2.fromScale(0.5, 0.5)
+Circle.BackgroundTransparency = 1
+Circle.Parent = GUI
 
--- REMOVE ESP
+local Round = Instance.new("UICorner")
+Round.CornerRadius = UDim.new(1, 0)
+Round.Parent = Circle
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = FOV_COLOR
+Stroke.Thickness = 2
+Stroke.Parent = Circle
+
+-- STATUS
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.fromOffset(200, 35)
+Status.Position = UDim2.new(0.5, -100, 0.72, 0)
+Status.BackgroundTransparency = 1
+Status.TextColor3 = Color3.new(1, 1, 1)
+Status.TextScaled = true
+Status.Parent = GUI
+
+-- ESP
 local function RemoveESP(Player)
-    if ESPObjects[Player] then
-        ESPObjects[Player]:Destroy()
-        ESPObjects[Player] = nil
+    if Highlights[Player] then
+        Highlights[Player]:Destroy()
+        Highlights[Player] = nil
     end
 end
 
--- CREATE ESP
 local function CreateESP(Player)
     if Player == LocalPlayer then return end
+    if Player:GetAttribute("AllowCameraAssist") ~= true then return end
 
     local Character = Player.Character
     if not Character then return end
@@ -43,67 +70,85 @@ local function CreateESP(Player)
     RemoveESP(Player)
 
     local Highlight = Instance.new("Highlight")
-    Highlight.Name = "KarrarHighlight"
     Highlight.Adornee = Character
-
-    Highlight.FillColor = ESPColor
-    Highlight.OutlineColor = ESPColor
-
-    Highlight.FillTransparency = 0.75
-    Highlight.OutlineTransparency = 0
-
+    Highlight.FillColor = ESP_COLOR
+    Highlight.OutlineColor = ESP_COLOR
+    Highlight.FillTransparency = 0.8
     Highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-    Highlight.Parent = Character
+    Highlight.Parent = GUI
 
-    ESPObjects[Player] = Highlight
+    Highlights[Player] = Highlight
 end
 
--- UPDATE PLAYER
-local function UpdatePlayer(Player)
-    if not ESPEnabled then return end
-
-    if Player.Character then
-        CreateESP(Player)
-    end
-end
-
--- ENABLE
-local function EnableESP()
-    ESPEnabled = true
-    Button.Text = "ESP : ON"
+-- TARGET INDICATOR
+local function GetTargetCount()
+    local Count = 0
 
     for _, Player in ipairs(Players:GetPlayers()) do
-        UpdatePlayer(Player)
+        if Player ~= LocalPlayer
+        and Player:GetAttribute("AllowCameraAssist") == true then
+
+            local Character = Player.Character
+            local Head = Character and Character:FindFirstChild("Head")
+            local Humanoid = Character
+                and Character:FindFirstChildOfClass("Humanoid")
+
+            if Head and Humanoid and Humanoid.Health > 0 then
+
+                local Position, Visible =
+                    Camera:WorldToViewportPoint(Head.Position)
+
+                local Center = Camera.ViewportSize / 2
+
+                local ScreenDistance = (
+                    Vector2.new(Position.X, Position.Y) - Center
+                ).Magnitude
+
+                local WorldDistance = (
+                    Camera.CFrame.Position - Head.Position
+                ).Magnitude
+
+                if Visible
+                and ScreenDistance <= FOV_RADIUS
+                and WorldDistance <= MAX_DISTANCE then
+                    Count += 1
+                end
+            end
+        end
     end
+
+    return Count
 end
 
--- DISABLE
-local function DisableESP()
-    ESPEnabled = false
-    Button.Text = "ESP : OFF"
+-- UPDATE
+RunService.RenderStepped:Connect(function()
 
-    for Player in pairs(ESPObjects) do
-        RemoveESP(Player)
-    end
-end
+    if not Enabled then return end
 
--- BUTTON
-Button.Activated:Connect(function()
-    if ESPEnabled then
-        DisableESP()
-    else
-        EnableESP()
-    end
+    Circle.Position = UDim2.fromOffset(
+        Camera.ViewportSize.X / 2,
+        Camera.ViewportSize.Y / 2
+    )
+
+    Status.Text = "Targets: " .. GetTargetCount()
+
 end)
 
 -- PLAYER EVENTS
 local function SetupPlayer(Player)
+
     if Player == LocalPlayer then return end
 
     Player.CharacterAdded:Connect(function()
         task.wait(0.5)
-        UpdatePlayer(Player)
+        if Enabled then
+            CreateESP(Player)
+        end
     end)
+
+    if Player.Character then
+        CreateESP(Player)
+    end
 end
 
 Players.PlayerAdded:Connect(SetupPlayer)
@@ -116,4 +161,4 @@ for _, Player in ipairs(Players:GetPlayers()) do
     SetupPlayer(Player)
 end
 
-print("KARRAR ESP V1.0 Loaded")
+print("KARRAR SYSTEM LOADED")
