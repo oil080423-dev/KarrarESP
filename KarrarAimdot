@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════
--- 🎯 نظام التصويب + ESP - النسخة النهائية
+-- 🎯 نظام التصويب + ESP - FOV ثابت + Crosshair
 -- ═══════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
@@ -12,17 +12,17 @@ local LocalPlayer = Players.LocalPlayer
 -- ⚙️ الإعدادات
 -- ═══════════════════════════════════════════
 local CONFIG = {
-    -- 🎯 التصويب (FOV صغير + ثبات قوي)
-    FOV_RADIUS = 110,              -- نطاق FOV (أصغر = أدق)
-    AIM_SMOOTHNESS = 0.28,         -- نعومة التصويب (أقل = أسلس)
-    AIM_DEAD_ZONE = 0.8,           -- منطقة ميتة (أكبر = ثبات أقوى)
-    TARGET_SMOOTHNESS = 0.30,      -- نعومة تتبع الهدف
-    STICKINESS = 0.95,             -- ثبات قوي على الهدف
+    -- 🎯 التصويب
+    FOV_RADIUS = 110,
+    AIM_SMOOTHNESS = 0.28,
+    AIM_DEAD_ZONE = 0.8,
+    TARGET_SMOOTHNESS = 0.30,
+    STICKINESS = 0.95,
     MAX_DISTANCE = 600,
     HEAD_OFFSET = Vector3.new(0, 0, 0),
     AIM_KEY = Enum.KeyCode.Q,
     
-    -- 👁️ ESP (بسيط - أحمر فقط)
+    -- 👁️ ESP
     ESP_KEY = Enum.KeyCode.E,
     ESP_MAX_DISTANCE = 800,
     ESP_COLOR = Color3.fromRGB(255, 40, 40),
@@ -31,6 +31,12 @@ local CONFIG = {
     
     -- ⚡ الأداء
     ESP_UPDATE_INTERVAL = 0.1,
+    
+    -- 🎯 Crosshair
+    CROSSHAIR_COLOR = Color3.fromRGB(0, 255, 0),  -- أخضر
+    CROSSHAIR_SIZE = 20,        -- طول كل خط
+    CROSSHAIR_THICKNESS = 2,    -- سمك الخط
+    CROSSHAIR_GAP = 4,          -- فراغ في المنتصف
 }
 
 -- ═══════════════════════════════════════════
@@ -47,6 +53,10 @@ local lastESPUpdate = 0
 -- ═══════════════════════════════════════════
 -- 🛠️ دوال التصويب
 -- ═══════════════════════════════════════════
+
+local function GetScreenCenter()
+    return Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+end
 
 local function HasLineOfSight(targetHead)
     local origin = Camera.CFrame.Position
@@ -88,17 +98,19 @@ local function IsValidTarget(player)
     return true, head
 end
 
+-- 🎯 إيجاد أفضل هدف (يعتمد على منتصف الشاشة)
 local function FindBestTarget()
     local bestTarget = nil
     local bestScore = math.huge
-    local mousePos = UserInputService:GetMouseLocation()
+    local screenCenter = GetScreenCenter()
     
+    -- فحص الهدف الحالي أولاً (للثبات)
     if currentTarget then
         local valid, head = IsValidTarget(currentTarget)
         if valid then
             local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
             if onScreen then
-                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
                 if screenDist < CONFIG.FOV_RADIUS then
                     local hasLOS = HasLineOfSight(head)
                     if hasLOS then
@@ -112,6 +124,7 @@ local function FindBestTarget()
         end
     end
     
+    -- البحث عن أهداف جديدة
     for _, player in pairs(Players:GetPlayers()) do
         if player == currentTarget then continue end
         local valid, head = IsValidTarget(player)
@@ -120,7 +133,8 @@ local function FindBestTarget()
         local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
         if not onScreen then continue end
         
-        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+        -- 🔹 المسافة من منتصف الشاشة (وليس الفأرة)
+        local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
         if screenDist > CONFIG.FOV_RADIUS then continue end
         
         local worldDist = (Camera.CFrame.Position - head.Position).Magnitude
@@ -141,7 +155,7 @@ local function FindBestTarget()
 end
 
 -- ═══════════════════════════════════════════
--- 👁️ ESP (Highlight فقط - أحمر)
+-- 👁️ ESP (Highlight فقط)
 -- ═══════════════════════════════════════════
 
 local function CreateESP(player)
@@ -215,12 +229,14 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 
--- 🔴 دائرة FOV (بيضاء رفيعة)
+-- ═══════════════════════════════════════════
+-- 🎯 دائرة FOV (ثابتة في المنتصف)
+-- ═══════════════════════════════════════════
 local fovCircle = Instance.new("Frame")
 fovCircle.Name = "FOVCircle"
 fovCircle.Size = UDim2.new(0, CONFIG.FOV_RADIUS * 2, 0, CONFIG.FOV_RADIUS * 2)
 fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
-fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)  -- 🎯 منتصف الشاشة
 fovCircle.BackgroundTransparency = 1
 fovCircle.BorderSizePixel = 0
 fovCircle.Visible = false
@@ -237,13 +253,76 @@ fovStroke.Transparency = 0.75
 fovStroke.Parent = fovCircle
 
 -- ═══════════════════════════════════════════
--- 🔴 زر التصويب (أحمر)
+-- ➕ Crosshair (علامة زائد)
+-- ═══════════════════════════════════════════
+local crosshairContainer = Instance.new("Frame")
+crosshairContainer.Name = "Crosshair"
+crosshairContainer.Size = UDim2.new(0, 0, 0, 0)
+crosshairContainer.AnchorPoint = Vector2.new(0.5, 0.5)
+crosshairContainer.Position = UDim2.new(0.5, 0, 0.5, 0)  -- منتصف الشاشة
+crosshairContainer.BackgroundTransparency = 1
+crosshairContainer.BorderSizePixel = 0
+crosshairContainer.Visible = false
+crosshairContainer.Parent = screenGui
+
+-- الخط الأفقي (يمين)
+local lineRight = Instance.new("Frame")
+lineRight.Name = "LineRight"
+lineRight.Size = UDim2.new(0, CONFIG.CROSSHAIR_SIZE, 0, CONFIG.CROSSHAIR_THICKNESS)
+lineRight.Position = UDim2.new(0, CONFIG.CROSSHAIR_GAP, 0, -CONFIG.CROSSHAIR_THICKNESS / 2)
+lineRight.AnchorPoint = Vector2.new(0, 0.5)
+lineRight.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
+lineRight.BorderSizePixel = 0
+lineRight.Parent = crosshairContainer
+
+-- الخط الأفقي (يسار)
+local lineLeft = Instance.new("Frame")
+lineLeft.Name = "LineLeft"
+lineLeft.Size = UDim2.new(0, CONFIG.CROSSHAIR_SIZE, 0, CONFIG.CROSSHAIR_THICKNESS)
+lineLeft.Position = UDim2.new(0, -CONFIG.CROSSHAIR_GAP, 0, -CONFIG.CROSSHAIR_THICKNESS / 2)
+lineLeft.AnchorPoint = Vector2.new(1, 0.5)
+lineLeft.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
+lineLeft.BorderSizePixel = 0
+lineLeft.Parent = crosshairContainer
+
+-- الخط العمودي (أعلى)
+local lineTop = Instance.new("Frame")
+lineTop.Name = "LineTop"
+lineTop.Size = UDim2.new(0, CONFIG.CROSSHAIR_THICKNESS, 0, CONFIG.CROSSHAIR_SIZE)
+lineTop.Position = UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, -CONFIG.CROSSHAIR_GAP)
+lineTop.AnchorPoint = Vector2.new(0.5, 1)
+lineTop.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
+lineTop.BorderSizePixel = 0
+lineTop.Parent = crosshairContainer
+
+-- الخط العمودي (أسفل)
+local lineBottom = Instance.new("Frame")
+lineBottom.Name = "LineBottom"
+lineBottom.Size = UDim2.new(0, CONFIG.CROSSHAIR_THICKNESS, 0, CONFIG.CROSSHAIR_SIZE)
+lineBottom.Position = UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, CONFIG.CROSSHAIR_GAP)
+lineBottom.AnchorPoint = Vector2.new(0.5, 0)
+lineBottom.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
+lineBottom.BorderSizePixel = 0
+lineBottom.Parent = crosshairContainer
+
+-- نقطة مركزية (اختياري - صغيرة)
+local centerDot = Instance.new("Frame")
+centerDot.Name = "CenterDot"
+centerDot.Size = UDim2.new(0, 2, 0, 2)
+centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+centerDot.Position = UDim2.new(0, 0, 0, 0)
+centerDot.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
+centerDot.BorderSizePixel = 0
+centerDot.Parent = crosshairContainer
+
+-- ═══════════════════════════════════════════
+-- 🔴 الأزرار
 -- ═══════════════════════════════════════════
 local aimButton = Instance.new("TextButton")
 aimButton.Name = "AimButton"
 aimButton.Size = UDim2.new(0, 110, 0, 110)
 aimButton.Position = UDim2.new(1, -130, 1, -280)
-aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)      -- 🔴 أحمر
+aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
 aimButton.BackgroundTransparency = 0.2
 aimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 aimButton.Text = "🎯\nالتصويب\n[Q]"
@@ -262,14 +341,11 @@ aimStroke.Thickness = 2
 aimStroke.Transparency = 0.5
 aimStroke.Parent = aimButton
 
--- ═══════════════════════════════════════════
--- 🔴 زر ESP (أحمر)
--- ═══════════════════════════════════════════
 local espButton = Instance.new("TextButton")
 espButton.Name = "ESPButton"
 espButton.Size = UDim2.new(0, 110, 0, 110)
 espButton.Position = UDim2.new(1, -130, 1, -160)
-espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)      -- 🔴 أحمر
+espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
 espButton.BackgroundTransparency = 0.2
 espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 espButton.Text = "👁️\nESP\n[E]"
@@ -293,12 +369,12 @@ espStroke.Parent = espButton
 -- ═══════════════════════════════════════════
 local function UpdateAimButton()
     if isAiming then
-        aimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)    -- 🟢 أخضر عند التفعيل
+        aimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
         aimButton.Text = "🎯\nمفعّل ✅\n[Q]"
         aimStroke.Color = Color3.fromRGB(0, 255, 0)
         aimStroke.Transparency = 0
     else
-        aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)   -- 🔴 أحمر عند الإطفاء
+        aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
         aimButton.Text = "🎯\nمغلق\n[Q]"
         aimStroke.Color = Color3.fromRGB(255, 255, 255)
         aimStroke.Transparency = 0.5
@@ -307,12 +383,12 @@ end
 
 local function UpdateESPButton()
     if isESPEnabled then
-        espButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)    -- 🟢 أخضر عند التفعيل
+        espButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
         espButton.Text = "👁️\nمفعّل ✅\n[E]"
         espStroke.Color = Color3.fromRGB(0, 255, 0)
         espStroke.Transparency = 0
     else
-        espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)   -- 🔴 أحمر عند الإطفاء
+        espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
         espButton.Text = "👁️\nمغلق\n[E]"
         espStroke.Color = Color3.fromRGB(255, 255, 255)
         espStroke.Transparency = 0.5
@@ -372,13 +448,13 @@ end)
 RunService.RenderStepped:Connect(function(deltaTime)
     local now = tick()
     
-    -- 🖱️ دائرة FOV تتبع الفأرة
+    -- 🎯 إظهار/إخفاء FOV + Crosshair
     if isAiming then
-        local mousePos = UserInputService:GetMouseLocation()
-        fovCircle.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
         fovCircle.Visible = true
+        crosshairContainer.Visible = true
     else
         fovCircle.Visible = false
+        crosshairContainer.Visible = false
     end
     
     -- 🎯 التصويب
