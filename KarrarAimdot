@@ -1,6 +1,7 @@
--- ═══════════════════════════════════════════════════════
--- 🎯 نظام التصويب + ESP - AIM_SMOOTHNESS 0.70
--- ═══════════════════════════════════════════════════════
+-- ═══════════════════════════════════════════════════════════════
+-- 🎯 نظام التصويب + ESP — v4.0 MOBILE-FIRST EDITION
+-- 📱 مصمم أساساً للهاتف | 💻 يعمل على الكمبيوتر كإضافة
+-- ═══════════════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -9,42 +10,55 @@ local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
 -- ═══════════════════════════════════════════
--- ⚙️ الإعدادات
+-- 📱 كشف الجهاز
+-- ═══════════════════════════════════════════
+local IS_MOBILE = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
+local IS_TABLET = IS_MOBILE and math.min(Camera.ViewportSize.X, Camera.ViewportSize.Y) >= 600
+
+-- ═══════════════════════════════════════════
+-- ⚙️ الإعدادات (Mobile-First)
 -- ═══════════════════════════════════════════
 local CONFIG = {
     -- 🎯 التصويب
-    FOV_RADIUS = 180,
-    AIM_SMOOTHNESS = 0.70,         -- ⬅️ كاميرا سريعة
-    AIM_DEAD_ZONE = 0.3,
+    FOV_RADIUS = IS_MOBILE and 90 or 180,
+    AIM_SMOOTHNESS = IS_MOBILE and 0.55 or 0.70,
+    AIM_DEAD_ZONE = IS_MOBILE and 2.5 or 1.0,
     TARGET_SMOOTHNESS = 0.80,
     STICKINESS = 0.97,
     MAX_DISTANCE = 1500,
     HEAD_OFFSET = Vector3.new(0, 0, 0),
     AIM_KEY = Enum.KeyCode.Q,
-    
-    -- 🆕 إعدادات التتبع
+
+    -- 🆕 التتبع
     PREDICTION_STRENGTH = 0.80,
     VERTICAL_LOCK = true,
-    TRACKING_POWER = 0.80,
-    
+    MAX_TARGET_SPEED = 500,
+
     -- 👁️ ESP
     ESP_KEY = Enum.KeyCode.E,
     ESP_MAX_DISTANCE = 2000,
     ESP_COLOR = Color3.fromRGB(255, 40, 40),
+    ESP_ALLY_COLOR = Color3.fromRGB(40, 200, 40),
     ESP_FILL_TRANSPARENCY = 0.75,
     ESP_OUTLINE_TRANSPARENCY = 0,
     ESP_UPDATE_INTERVAL = 0.1,
-    
+
     -- 🎯 Crosshair
     CROSSHAIR_COLOR = Color3.fromRGB(0, 255, 0),
-    CROSSHAIR_SIZE = 20,
+    CROSSHAIR_SIZE = IS_MOBILE and 12 or 20,
     CROSSHAIR_THICKNESS = 2,
     CROSSHAIR_GAP = 4,
-    
+
     -- 🎨 الألوان
     ICON_COLOR = Color3.fromRGB(180, 0, 0),
     ICON_ACTIVE_COLOR = Color3.fromRGB(0, 200, 0),
-    
+
+    -- 📱 خصائص UI (Mobile)
+    UI_SCALE = IS_MOBILE and (IS_TABLET and 1.0 or 1.3) or 1.0,
+    BUTTON_SIZE = IS_MOBILE and 56 or 45,
+    TRIGGER_SIZE = IS_MOBILE and 90 or 60,
+    DRAG_THRESHOLD = IS_MOBILE and 12 or 8,
+
     -- 🆕 Debug
     DEBUG = false,
 }
@@ -56,6 +70,11 @@ local currentTarget = nil
 local isAiming = false
 local isESPEnabled = false
 local isMenuOpen = false
+
+-- ✅ نظام Trigger مزدوج: ضغط/إفلات + تثبيت
+local isTriggerHeld = false
+local isTriggerLocked = false  -- ✅ التثبيت (تصويب دائم)
+
 local espObjects = {}
 local smoothedTargetPosition = nil
 local lastTargetHead = nil
@@ -63,31 +82,44 @@ local lastESPUpdate = 0
 local targetVelocity = Vector3.zero
 local lastRawTargetPos = nil
 local lastDebugPrint = 0
+local playerConnections = {}
 
 -- ═══════════════════════════════════════════
--- 🛠️ دوال التصويب
+-- 🛠️ دوال مساعدة
 -- ═══════════════════════════════════════════
 
 local function GetScreenCenter()
-    return Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    local vp = Camera.ViewportSize
+    if vp.X <= 0 or vp.Y <= 0 then vp = Vector2.new(1920, 1080) end
+    return Vector2.new(vp.X / 2, vp.Y / 2)
 end
 
 local function HasLineOfSight(targetHead)
     local origin = Camera.CFrame.Position
     local direction = targetHead.Position - origin
     local distance = direction.Magnitude
-    if distance > CONFIG.MAX_DISTANCE then return false, distance end
-    
+    if distance > CONFIG.MAX_DISTANCE then return false end
+    if distance < 0.1 then return true end
+
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {LocalPlayer.Character}
-    
-    local result = workspace:Raycast(origin, direction, params)
-    if not result then return true, distance end
-    if result.Instance and result.Instance:IsDescendantOf(targetHead.Parent) then
-        return true, distance
+    params.IgnoreWater = true
+    local ignored = { LocalPlayer.Character }
+
+    for _ = 1, 4 do
+        params.FilterDescendantsInstances = ignored
+        local result = workspace:Raycast(origin, direction, params)
+        if not result then return true end
+        if result.Instance then
+            if result.Instance:IsDescendantOf(targetHead.Parent) then return true end
+            if result.Instance.Transparency > 0.5 then
+                table.insert(ignored, result.Instance)
+                continue
+            end
+        end
+        return false
     end
-    return false, distance
+    return false
 end
 
 local function IsEnemy(player)
@@ -100,32 +132,22 @@ local function IsEnemy(player)
 end
 
 local function IsValidTarget(player)
-    if not IsEnemy(player) then return false end
-    
+    if not IsEnemy(player) then return false, nil end
     local char = player.Character
-    if not char then return false end
-    if not char.Parent then return false end
-    
+    if not char or not char.Parent then return false, nil end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return false end
-    
-    if humanoid.Health <= 0 then return false end
-    
+    if not humanoid or humanoid.Health <= 0 then return false, nil end
     local state = humanoid:GetState()
-    if state == Enum.HumanoidStateType.Dead 
-       or state == Enum.HumanoidStateType.Dying 
+    if state == Enum.HumanoidStateType.Dead
+       or state == Enum.HumanoidStateType.Dying
        or state == Enum.HumanoidStateType.FallingDown then
-        return false end
-    
+        return false, nil
+    end
     local head = char:FindFirstChild("Head")
-    if not head then return false end
-    
-    if head.Transparency >= 0.9 then return false end
-    
-    if not char:FindFirstChild("HumanoidRootPart") then return false end
-    
-    if humanoid.PlatformStand then return false end
-    
+    if not head then return false, nil end
+    if head.Transparency >= 0.9 then return false, nil end
+    if not char:FindFirstChild("HumanoidRootPart") then return false, nil end
+    if humanoid.PlatformStand then return false, nil end
     return true, head
 end
 
@@ -133,50 +155,45 @@ local function FindBestTarget()
     local bestTarget = nil
     local bestScore = math.huge
     local screenCenter = GetScreenCenter()
-    
+
     if currentTarget then
-        local valid, head = IsValidTarget(currentTarget)
-        if valid then
-            local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
-            if onScreen then
-                local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
-                if screenDist < CONFIG.FOV_RADIUS then
-                    local hasLOS = HasLineOfSight(head)
-                    if hasLOS then
+        if not currentTarget.Parent then
+            currentTarget = nil
+        else
+            local valid, head = IsValidTarget(currentTarget)
+            if valid then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                    if screenDist < CONFIG.FOV_RADIUS and HasLineOfSight(head) then
                         bestTarget = currentTarget
                         bestScore = screenDist * (1 - CONFIG.STICKINESS)
                     end
                 end
+            else
+                currentTarget = nil
             end
-        else
-            currentTarget = nil
         end
     end
-    
-    for _, player in pairs(Players:GetPlayers()) do
+
+    for _, player in ipairs(Players:GetPlayers()) do
         if player == currentTarget then continue end
         local valid, head = IsValidTarget(player)
         if not valid then continue end
-        
         local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
         if not onScreen then continue end
-        
         local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
         if screenDist > CONFIG.FOV_RADIUS then continue end
-        
         local worldDist = (Camera.CFrame.Position - head.Position).Magnitude
         if worldDist > CONFIG.MAX_DISTANCE then continue end
-        
-        local hasLOS = HasLineOfSight(head)
-        if not hasLOS then continue end
-        
+        if not HasLineOfSight(head) then continue end
         local score = screenDist + (worldDist * 0.05)
         if score < bestScore then
             bestScore = score
             bestTarget = player
         end
     end
-    
+
     currentTarget = bestTarget
     return currentTarget
 end
@@ -184,72 +201,80 @@ end
 -- ═══════════════════════════════════════════
 -- 👁️ ESP
 -- ═══════════════════════════════════════════
-
 local function CreateESP(player)
     if player == LocalPlayer then return end
     if espObjects[player] then return end
-    
+    if not player.Character then return end
+
+    local isAlly = LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team
+    local color = isAlly and CONFIG.ESP_ALLY_COLOR or CONFIG.ESP_COLOR
+
     local highlight = Instance.new("Highlight")
     highlight.Name = "ESP_Highlight"
-    highlight.FillColor = CONFIG.ESP_COLOR
+    highlight.FillColor = color
     highlight.FillTransparency = CONFIG.ESP_FILL_TRANSPARENCY
-    highlight.OutlineColor = CONFIG.ESP_COLOR
+    highlight.OutlineColor = color
     highlight.OutlineTransparency = CONFIG.ESP_OUTLINE_TRANSPARENCY
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Adornee = player.Character
     highlight.Parent = player.Character
-    
+
     espObjects[player] = { Highlight = highlight }
 end
 
 local function RemoveESP(player)
     local esp = espObjects[player]
     if not esp then return end
-    if esp.Highlight then esp.Highlight:Destroy() end
+    if esp.Highlight and esp.Highlight.Parent then esp.Highlight:Destroy() end
     espObjects[player] = nil
+end
+
+local function ClearAllESP()
+    local toRemove = {}
+    for player in pairs(espObjects) do table.insert(toRemove, player) end
+    for _, player in ipairs(toRemove) do RemoveESP(player) end
 end
 
 local function SetESPState(enabled)
     if enabled then
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                CreateESP(player)
-            end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then CreateESP(player) end
         end
     else
-        for player, _ in pairs(espObjects) do
-            RemoveESP(player)
-        end
+        ClearAllESP()
     end
 end
 
 local function UpdateESP(now)
     if now - lastESPUpdate < CONFIG.ESP_UPDATE_INTERVAL then return end
     lastESPUpdate = now
-    
+    local myChar = LocalPlayer.Character
+    local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    local toRemove = {}
     for player, esp in pairs(espObjects) do
-        if not player.Character or not player.Character:FindFirstChild("HumanoidRootPart") then
-            RemoveESP(player)
+        local char = player.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then
+            table.insert(toRemove, player)
             continue
         end
-        
-        local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-        local myChar = LocalPlayer.Character
-        
-        if not humanoid or humanoid.Health <= 0 or not myChar or not myChar:FindFirstChild("HumanoidRootPart") then
+        if esp.Highlight and esp.Highlight.Adornee ~= char then
+            esp.Highlight.Adornee = char
+        end
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 or not myRoot then
             if esp.Highlight then esp.Highlight.Enabled = false end
             continue
         end
-        
-        local distance = (myChar.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude
+        local distance = (myRoot.Position - char.HumanoidRootPart.Position).Magnitude
         if esp.Highlight then
             esp.Highlight.Enabled = distance <= CONFIG.ESP_MAX_DISTANCE
         end
     end
+    for _, player in ipairs(toRemove) do RemoveESP(player) end
 end
 
 -- ═══════════════════════════════════════════
--- 🖥️ واجهة المستخدم
+-- 🖥️ واجهة المستخدم (Mobile-First)
 -- ═══════════════════════════════════════════
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -258,7 +283,13 @@ screenGui.Name = "AimESP_UI"
 screenGui.ResetOnSpawn = false
 screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.IgnoreGuiInset = true
+screenGui.DisplayOrder = 100
 screenGui.Parent = playerGui
+
+-- ✅ UIScale للتكيّف مع الشاشات
+local uiScale = Instance.new("UIScale")
+uiScale.Scale = CONFIG.UI_SCALE
+uiScale.Parent = screenGui
 
 -- 🎯 دائرة FOV
 local fovCircle = Instance.new("Frame")
@@ -324,11 +355,95 @@ CreateCrosshairLine("LineBottom",
     UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, CONFIG.CROSSHAIR_GAP),
     Vector2.new(0.5, 0))
 
--- 🎛️ الأيقونة
+-- ═══════════════════════════════════════════
+-- 🔘 زر Trigger الكبير (الهاتف)
+-- ═══════════════════════════════════════════
+local triggerButton = Instance.new("TextButton")
+triggerButton.Name = "TriggerButton"
+triggerButton.Size = UDim2.new(0, CONFIG.TRIGGER_SIZE, 0, CONFIG.TRIGGER_SIZE)
+triggerButton.AnchorPoint = Vector2.new(0.5, 0.5)
+triggerButton.Position = UDim2.new(0.8, 0, 0.75, 0)
+triggerButton.BackgroundColor3 = CONFIG.ICON_COLOR
+triggerButton.BackgroundTransparency = 0.15
+triggerButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+triggerButton.Text = "🎯"
+triggerButton.TextScaled = true
+triggerButton.Font = Enum.Font.GothamBold
+triggerButton.BorderSizePixel = 0
+triggerButton.AutoButtonColor = false
+triggerButton.Active = true
+triggerButton.Visible = false
+triggerButton.Parent = screenGui
+
+local triggerCorner = Instance.new("UICorner")
+triggerCorner.CornerRadius = UDim.new(1, 0)
+triggerCorner.Parent = triggerButton
+
+local triggerStroke = Instance.new("UIStroke")
+triggerStroke.Color = Color3.fromRGB(255, 255, 255)
+triggerStroke.Thickness = 3
+triggerStroke.Transparency = 0.3
+triggerStroke.Parent = triggerButton
+
+-- ✅ منطق Trigger: ضغط = تصويب، إفلات = إيقاف (إلا إذا كان مُثبّتاً)
+local function UpdateTriggerVisual()
+    if isTriggerLocked then
+        triggerButton.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+        triggerButton.Text = "🔒"
+    elseif isTriggerHeld then
+        triggerButton.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
+        triggerButton.Text = "✅"
+    else
+        triggerButton.BackgroundColor3 = CONFIG.ICON_COLOR
+        triggerButton.Text = "🎯"
+    end
+end
+
+triggerButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        isTriggerHeld = true
+        UpdateTriggerVisual()
+    end
+end)
+
+triggerButton.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+    or input.UserInputType == Enum.UserInputType.Touch then
+        isTriggerHeld = false
+        if not isTriggerLocked then
+            smoothedTargetPosition = nil
+            lastTargetHead = nil
+            lastRawTargetPos = nil
+            targetVelocity = Vector3.zero
+        end
+        UpdateTriggerVisual()
+    end
+end)
+
+-- ✅ نقرة مزدوجة = تثبيت/إلغاء تثبيت
+local lastTriggerTap = 0
+triggerButton.MouseButton1Click:Connect(function()
+    local now = tick()
+    if now - lastTriggerTap < 0.4 then
+        isTriggerLocked = not isTriggerLocked
+        if not isTriggerLocked then
+            smoothedTargetPosition = nil
+            lastTargetHead = nil
+            lastRawTargetPos = nil
+            targetVelocity = Vector3.zero
+        end
+        UpdateTriggerVisual()
+    end
+    lastTriggerTap = now
+end)
+
+-- 🎛️ الأيقونة الرئيسية
 local mainIcon = Instance.new("TextButton")
 mainIcon.Name = "MainIcon"
 mainIcon.Size = UDim2.new(0, 60, 0, 60)
-mainIcon.Position = UDim2.new(1, -80, 0.5, -30)
+mainIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+mainIcon.Position = UDim2.new(1, -50, 0.5, -30)
 mainIcon.BackgroundColor3 = CONFIG.ICON_COLOR
 mainIcon.BackgroundTransparency = 0.1
 mainIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -337,6 +452,7 @@ mainIcon.TextScaled = true
 mainIcon.Font = Enum.Font.GothamBold
 mainIcon.BorderSizePixel = 0
 mainIcon.AutoButtonColor = false
+mainIcon.Active = true
 mainIcon.Parent = screenGui
 
 local iconCorner = Instance.new("UICorner")
@@ -349,19 +465,20 @@ iconStroke.Thickness = 2
 iconStroke.Transparency = 0.3
 iconStroke.Parent = mainIcon
 
--- 📋 القائمة
+-- 📋 القائمة (Mobile-First sizing)
 local menuFrame = Instance.new("Frame")
 menuFrame.Name = "MenuFrame"
-menuFrame.Size = UDim2.new(0, 180, 0, 160)
-menuFrame.Position = UDim2.new(1, -260, 0.5, -80)
+menuFrame.Size = UDim2.new(0, 200, 0, 240)
+menuFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+menuFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 menuFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-menuFrame.BackgroundTransparency = 0.1
+menuFrame.BackgroundTransparency = 0.05
 menuFrame.BorderSizePixel = 0
 menuFrame.Visible = false
 menuFrame.Parent = screenGui
 
 local menuCorner = Instance.new("UICorner")
-menuCorner.CornerRadius = UDim.new(0, 12)
+menuCorner.CornerRadius = UDim.new(0, 16)
 menuCorner.Parent = menuFrame
 
 local menuStroke = Instance.new("UIStroke")
@@ -371,8 +488,8 @@ menuStroke.Transparency = 0.3
 menuStroke.Parent = menuFrame
 
 local menuTitle = Instance.new("TextLabel")
-menuTitle.Size = UDim2.new(1, 0, 0, 28)
-menuTitle.Position = UDim2.new(0, 0, 0, 5)
+menuTitle.Size = UDim2.new(1, 0, 0, 32)
+menuTitle.Position = UDim2.new(0, 0, 0, 6)
 menuTitle.BackgroundTransparency = 1
 menuTitle.Text = "⚙️ الإعدادات"
 menuTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -380,39 +497,32 @@ menuTitle.TextScaled = true
 menuTitle.Font = Enum.Font.GothamBold
 menuTitle.Parent = menuFrame
 
-local aimToggle = Instance.new("TextButton")
-aimToggle.Name = "AimToggle"
-aimToggle.Size = UDim2.new(0.9, 0, 0, 45)
-aimToggle.Position = UDim2.new(0.05, 0, 0, 40)
-aimToggle.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-aimToggle.BackgroundTransparency = 0.1
-aimToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-aimToggle.Text = "🎯 التصويب: مغلق"
-aimToggle.TextScaled = true
-aimToggle.Font = Enum.Font.GothamBold
-aimToggle.BorderSizePixel = 0
-aimToggle.Parent = menuFrame
+-- ✅ دالة مساعدة لإنشاء زر
+local function CreateMenuButton(name, positionY, text, color)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(0.9, 0, 0, CONFIG.BUTTON_SIZE)
+    btn.Position = UDim2.new(0.05, 0, 0, positionY)
+    btn.BackgroundColor3 = color or CONFIG.ICON_COLOR
+    btn.BackgroundTransparency = 0.1
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Text = text
+    btn.TextScaled = true
+    btn.Font = Enum.Font.GothamBold
+    btn.BorderSizePixel = 0
+    btn.AutoButtonColor = false
+    btn.Parent = menuFrame
 
-local aimToggleCorner = Instance.new("UICorner")
-aimToggleCorner.CornerRadius = UDim.new(0, 8)
-aimToggleCorner.Parent = aimToggle
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = btn
 
-local espToggle = Instance.new("TextButton")
-espToggle.Name = "ESPToggle"
-espToggle.Size = UDim2.new(0.9, 0, 0, 45)
-espToggle.Position = UDim2.new(0.05, 0, 0, 95)
-espToggle.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-espToggle.BackgroundTransparency = 0.1
-espToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
-espToggle.Text = "👁️ ESP: مغلق"
-espToggle.TextScaled = true
-espToggle.Font = Enum.Font.GothamBold
-espToggle.BorderSizePixel = 0
-espToggle.Parent = menuFrame
+    return btn
+end
 
-local espToggleCorner = Instance.new("UICorner")
-espToggleCorner.CornerRadius = UDim.new(0, 8)
-espToggleCorner.Parent = espToggle
+local aimToggle = CreateMenuButton("AimToggle", 44, "🎯 التصويب: مغلق")
+local espToggle = CreateMenuButton("ESPToggle", 44 + CONFIG.BUTTON_SIZE + 8, "👁️ ESP: مغلق")
+local triggerToggle = CreateMenuButton("TriggerToggle", 44 + (CONFIG.BUTTON_SIZE + 8) * 2, "🔘 زر Trigger: مفعّل")
 
 -- 🔄 تحديث الأزرار
 local function UpdateAimVisual()
@@ -435,7 +545,17 @@ local function UpdateESPVisual()
     end
 end
 
--- 🎮 دوال التبديل
+local function UpdateTriggerToggleVisual()
+    if triggerButton.Visible then
+        triggerToggle.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
+        triggerToggle.Text = "🔘 زر Trigger: مفعّل ✅"
+    else
+        triggerToggle.BackgroundColor3 = CONFIG.ICON_COLOR
+        triggerToggle.Text = "🔘 زر Trigger: مغلق"
+    end
+end
+
+-- 🎮 التبديلات
 local function ToggleAim()
     isAiming = not isAiming
     if not isAiming then
@@ -444,6 +564,14 @@ local function ToggleAim()
         lastTargetHead = nil
         lastRawTargetPos = nil
         targetVelocity = Vector3.zero
+        isTriggerHeld = false
+        isTriggerLocked = false
+        UpdateTriggerVisual()
+    end
+    -- ✅ إظهار/إخفاء زر Trigger تلقائياً
+    if IS_MOBILE then
+        triggerButton.Visible = isAiming
+        UpdateTriggerToggleVisual()
     end
     UpdateAimVisual()
 end
@@ -454,205 +582,254 @@ local function ToggleESP()
     UpdateESPVisual()
 end
 
+local function ToggleTriggerButton()
+    if not IS_MOBILE then return end
+    triggerButton.Visible = not triggerButton.Visible
+    if not triggerButton.Visible then
+        isTriggerHeld = false
+        isTriggerLocked = false
+    end
+    UpdateTriggerVisual()
+    UpdateTriggerToggleVisual()
+end
+
 local function ToggleMenu()
     isMenuOpen = not isMenuOpen
     menuFrame.Visible = isMenuOpen
     if isMenuOpen then
         mainIcon.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
-        mainIcon.Text = "✖️"
+        mainIcon.Text = "✖"
     else
         mainIcon.BackgroundColor3 = CONFIG.ICON_COLOR
         mainIcon.Text = "⚙️"
     end
 end
 
--- 🖱️ نظام السحب
-local function MakeDraggable(frame, targetFrame)
+-- ═══════════════════════════════════════════
+-- 🖱️ نظام السحب (محسّن للمس)
+-- ═══════════════════════════════════════════
+local function MakeDraggable(handle, targetFrame, onClick)
     local dragging = false
     local dragStart = nil
     local startPos = nil
-    
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
-           input.UserInputType == Enum.UserInputType.Touch then
+    local pressStart = nil
+    local pressPos = nil
+    local moved = false
+    local THRESHOLD = CONFIG.DRAG_THRESHOLD
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = targetFrame.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
+            pressStart = tick()
+            pressPos = input.Position
+            moved = false
         end
     end)
-    
+
     UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
-                          input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            targetFrame.Position = UDim2.new(
-                startPos.X.Scale, startPos.X.Offset + delta.X,
-                startPos.Y.Scale, startPos.Y.Offset + delta.Y
-            )
+        if not dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        if pressPos and (input.Position - pressPos).Magnitude > THRESHOLD then
+            moved = true
         end
+        local delta = input.Position - dragStart
+        targetFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseButton1
+        and input.UserInputType ~= Enum.UserInputType.Touch then return end
+        dragging = false
+        if onClick and not moved and pressStart and (tick() - pressStart) < 0.4 then
+            onClick()
+        end
+        pressStart = nil
+        pressPos = nil
+        moved = false
     end)
 end
 
-MakeDraggable(mainIcon, mainIcon)
+MakeDraggable(mainIcon, mainIcon, ToggleMenu)
 
-local titleDragArea = Instance.new("TextButton")
-titleDragArea.Size = UDim2.new(1, 0, 0, 35)
-titleDragArea.Position = UDim2.new(0, 0, 0, 0)
-titleDragArea.BackgroundTransparency = 1
-titleDragArea.Text = ""
-titleDragArea.Parent = menuFrame
+-- ✅ زر الإغلاق داخل القائمة
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 32, 0, 32)
+closeButton.Position = UDim2.new(1, -40, 0, 4)
+closeButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+closeButton.BackgroundTransparency = 0.1
+closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeButton.Text = "✖"
+closeButton.TextScaled = true
+closeButton.Font = Enum.Font.GothamBold
+closeButton.BorderSizePixel = 0
+closeButton.Parent = menuFrame
 
-MakeDraggable(titleDragArea, menuFrame)
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(1, 0)
+closeCorner.Parent = closeButton
 
--- 🎯 ربط الأيقونة
-local iconClickStart = nil
-local iconDragged = false
-
-mainIcon.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        iconClickStart = tick()
-        iconDragged = false
-    end
+closeButton.MouseButton1Click:Connect(function()
+    if isMenuOpen then ToggleMenu() end
 end)
 
-mainIcon.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        if iconClickStart and (tick() - iconClickStart) > 0.1 then
-            iconDragged = true
-        end
-    end
-end)
-
-mainIcon.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
-       input.UserInputType == Enum.UserInputType.Touch then
-        if not iconDragged and iconClickStart and (tick() - iconClickStart) < 0.3 then
-            ToggleMenu()
-        end
-        iconClickStart = nil
-        iconDragged = false
-    end
-end)
-
+-- ✅ ربط الأزرار
 aimToggle.MouseButton1Click:Connect(ToggleAim)
 espToggle.MouseButton1Click:Connect(ToggleESP)
+triggerToggle.MouseButton1Click:Connect(ToggleTriggerButton)
 
+-- ⌨️ اختصارات الكيبورد (كمبيوتر فقط)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
-    if input.KeyCode == CONFIG.AIM_KEY then ToggleAim() end
-    if input.KeyCode == CONFIG.ESP_KEY then ToggleESP() end
+    if not IS_MOBILE then
+        if input.KeyCode == CONFIG.AIM_KEY then ToggleAim() end
+        if input.KeyCode == CONFIG.ESP_KEY then ToggleESP() end
+    end
 end)
 
--- إدارة اللاعبين
-Players.PlayerAdded:Connect(function(player)
-    player.CharacterAdded:Connect(function()
-        task.wait(0.5)
-        if isESPEnabled and player ~= LocalPlayer then
-            CreateESP(player)
-        end
-    end)
-end)
+-- ═══════════════════════════════════════════
+-- 👥 إدارة اللاعبين
+-- ═══════════════════════════════════════════
+local function OnCharacterAdded(player, character)
+    task.wait(0.5)
+    if player.Parent and player.Character == character
+       and isESPEnabled and player ~= LocalPlayer then
+        CreateESP(player)
+    end
+end
+
+local function SetupPlayerConnections(player)
+    if player == LocalPlayer then return end
+    if playerConnections[player] then return end
+    playerConnections[player] = {
+        CharacterAdded = player.CharacterAdded:Connect(function(char)
+            OnCharacterAdded(player, char)
+        end)
+    }
+    if player.Character and isESPEnabled then
+        OnCharacterAdded(player, player.Character)
+    end
+end
+
+Players.PlayerAdded:Connect(SetupPlayerConnections)
+for _, player in ipairs(Players:GetPlayers()) do
+    SetupPlayerConnections(player)
+end
 
 Players.PlayerRemoving:Connect(function(player)
+    local conns = playerConnections[player]
+    if conns then
+        if conns.CharacterAdded then conns.CharacterAdded:Disconnect() end
+        playerConnections[player] = nil
+    end
     RemoveESP(player)
 end)
 
 -- ═══════════════════════════════════════════
--- 🔄 الحلقة الرئيسية (AIM_SMOOTHNESS 0.70)
+-- 🔄 الحلقة الرئيسية
 -- ═══════════════════════════════════════════
+local function IsAimingActive()
+    if IS_MOBILE then
+        -- ✅ على الهاتف: (مثبّت) أو (مضغوط) أو (زر مخفي)
+        return isAiming and (isTriggerLocked or isTriggerHeld or not triggerButton.Visible)
+    end
+    return isAiming
+end
+
 RunService.RenderStepped:Connect(function(deltaTime)
     local now = tick()
-    
-    if isAiming then
-        fovCircle.Visible = true
-        crosshairContainer.Visible = true
-    else
-        fovCircle.Visible = false
-        crosshairContainer.Visible = false
-    end
-    
-    if isAiming and LocalPlayer.Character then
+    local aimingActive = IsAimingActive()
+
+    fovCircle.Visible = aimingActive
+    crosshairContainer.Visible = aimingActive
+
+    if aimingActive and LocalPlayer.Character then
         local target = FindBestTarget()
-        
+
         if CONFIG.DEBUG and now - lastDebugPrint > 1 then
             lastDebugPrint = now
-            if target then
-                print("🎯 الهدف:", target.Name)
-            else
-                print("🔍 لا يوجد هدف في النطاق")
-            end
+            print(target and ("🎯 الهدف: " .. target.Name) or "🔍 لا يوجد هدف")
         end
-        
+
         if target then
             local targetHead = target.Character and target.Character:FindFirstChild("Head")
-            
             if targetHead then
                 local rawTargetPos = targetHead.Position + CONFIG.HEAD_OFFSET
-                
+
                 if lastTargetHead ~= targetHead then
                     lastTargetHead = targetHead
                     smoothedTargetPosition = rawTargetPos
                     lastRawTargetPos = rawTargetPos
                     targetVelocity = Vector3.zero
                 end
-                
-                -- 1. حساب سرعة الهدف
+
                 if lastRawTargetPos and deltaTime > 0 then
                     local instantVelocity = (rawTargetPos - lastRawTargetPos) / deltaTime
-                    targetVelocity = targetVelocity:Lerp(instantVelocity, 0.5)
+                    if instantVelocity.Magnitude > CONFIG.MAX_TARGET_SPEED then
+                        instantVelocity = instantVelocity.Unit * CONFIG.MAX_TARGET_SPEED
+                    end
+                    local velLerp = 1 - math.pow(0.5, deltaTime * 60)
+                    targetVelocity = targetVelocity:Lerp(instantVelocity, velLerp)
                 end
                 lastRawTargetPos = rawTargetPos
-                
-                -- 2. توقع الموقع
+
                 local predictedPos = rawTargetPos + (targetVelocity * CONFIG.PREDICTION_STRENGTH * deltaTime)
-                
-                -- 3. تنعيم موقع الهدف
-                local targetSmoothFactor = 1 - math.pow(1 - CONFIG.TARGET_SMOOTHNESS, deltaTime * 60)
-                smoothedTargetPosition = smoothedTargetPosition:Lerp(predictedPos, targetSmoothFactor)
-                
+                local targetSmooth = 1 - math.pow(1 - CONFIG.TARGET_SMOOTHNESS, deltaTime * 60)
+                smoothedTargetPosition = smoothedTargetPosition:Lerp(predictedPos, targetSmooth)
+
                 local cameraPos = Camera.CFrame.Position
                 local direction = smoothedTargetPosition - cameraPos
                 local distanceToTarget = direction.Magnitude
-                
+
                 if distanceToTarget > CONFIG.AIM_DEAD_ZONE then
-                    local goalCFrame = CFrame.lookAt(cameraPos, smoothedTargetPosition)
-                    
-                    -- 4. نعومة متغيرة
-                    local movementSpeed = targetVelocity.Magnitude
-                    local speedBoost = math.clamp(movementSpeed / 80, 0, 0.15)
-                    
-                    local distanceRatio = math.clamp(distanceToTarget / 100, 0, 1)
-                    local baseSmoothness = CONFIG.AIM_SMOOTHNESS * distanceRatio
-                    local adaptiveSmoothness = math.max(baseSmoothness + speedBoost, 0.08)
-                    
-                    local smoothFactor = 1 - math.pow(1 - adaptiveSmoothness, deltaTime * 60)
-                    
-                    local newCFrame = Camera.CFrame:Lerp(goalCFrame, smoothFactor)
-                    
-                    -- 5. مزج الاتجاه
+                    local desiredCFrame = CFrame.lookAt(cameraPos, smoothedTargetPosition)
+                    local desiredLook = desiredCFrame.LookVector
+
+                    local speedFactor = math.clamp(targetVelocity.Magnitude / 200, 0, 0.10)
+                    local distanceFactor = math.clamp(distanceToTarget / 100, 0, 1)
+                    local effectiveSmoothness = math.clamp(
+                        CONFIG.AIM_SMOOTHNESS * distanceFactor + speedFactor,
+                        0.05, 0.95
+                    )
+                    local smoothFactor = 1 - math.pow(1 - effectiveSmoothness, deltaTime * 60)
+
                     local currentLook = Camera.CFrame.LookVector
-                    local newLook = newCFrame.LookVector
-                    local blendFactor = 0.65 + math.clamp(movementSpeed / 120, 0, 0.2)
-                    local blendedLook = currentLook:Lerp(newLook, blendFactor).Unit
-                    
-                    -- 6. Vertical Lock
+                    local blendedLook = currentLook:Lerp(desiredLook, smoothFactor)
+                    if blendedLook.Magnitude < 0.001 then
+                        blendedLook = desiredLook
+                    end
+                    blendedLook = blendedLook.Unit
+
                     if CONFIG.VERTICAL_LOCK then
-                        local targetY = smoothedTargetPosition.Y
-                        local finalTarget = Vector3.new(
-                            cameraPos.X + blendedLook.X * distanceToTarget,
-                            targetY,
-                            cameraPos.Z + blendedLook.Z * distanceToTarget
-                        )
-                        Camera.CFrame = CFrame.lookAt(cameraPos, finalTarget)
+                        local lookXZ = Vector3.new(blendedLook.X, 0, blendedLook.Z)
+                        if lookXZ.Magnitude > 0.01 then
+                            lookXZ = lookXZ.Unit
+                            local dx = smoothedTargetPosition.X - cameraPos.X
+                            local dz = smoothedTargetPosition.Z - cameraPos.Z
+                            local horizontalDist = math.sqrt(dx * dx + dz * dz)
+                            if horizontalDist < 0.5 then horizontalDist = 0.5 end
+
+                            local finalTarget = Vector3.new(
+                                cameraPos.X + lookXZ.X * horizontalDist,
+                                smoothedTargetPosition.Y,
+                                cameraPos.Z + lookXZ.Z * horizontalDist
+                            )
+                            if (finalTarget - cameraPos).Magnitude > 0.01 then
+                                Camera.CFrame = CFrame.lookAt(cameraPos, finalTarget)
+                            end
+                        end
                     else
-                        Camera.CFrame = CFrame.lookAt(cameraPos, cameraPos + blendedLook)
+                        local lookTarget = cameraPos + blendedLook
+                        if (lookTarget - cameraPos).Magnitude > 0.01 then
+                            Camera.CFrame = CFrame.lookAt(cameraPos, lookTarget)
+                        end
                     end
                 end
             end
@@ -663,13 +840,23 @@ RunService.RenderStepped:Connect(function(deltaTime)
             targetVelocity = Vector3.zero
         end
     end
-    
+
     if isESPEnabled then
         UpdateESP(now)
     end
 end)
 
+-- ═══════════════════════════════════════════
 -- ✅ إعداد أولي
+-- ═══════════════════════════════════════════
 UpdateAimVisual()
 UpdateESPVisual()
-print("✅ النظام جاهز - AIM_SMOOTHNESS = 0.70")
+UpdateTriggerToggleVisual()
+UpdateTriggerVisual()
+
+print("═══════════════════════════════════════")
+print("✅ النظام جاهز — v4.0 MOBILE-FIRST")
+print("📱 الجهاز: " .. (IS_MOBILE and (IS_TABLET and "جهاز لوحي" or "هاتف") or "كمبيوتر"))
+print("🎯 FOV: " .. CONFIG.FOV_RADIUS .. "px | Smoothness: " .. CONFIG.AIM_SMOOTHNESS)
+print("🔘 Trigger: " .. (IS_MOBILE and "متاح تلقائياً" or "غير مطلوب"))
+print("═══════════════════════════════════════")
