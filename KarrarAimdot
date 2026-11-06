@@ -16,6 +16,9 @@ local ESP_FILL_COLOR = Color3.fromRGB(255, 0, 0)
 local ESP_OUTLINE_COLOR = Color3.fromRGB(255, 255, 255)
 local ESP_FILL_TRANSPARENCY = 0.5
 
+-- 🔘 حالة التفعيل
+local assistEnabled = true
+
 ------------------------------------------------------------
 -- 🎯 Aim Assist (يستهدف الرأس)
 ------------------------------------------------------------
@@ -52,6 +55,7 @@ local function getBestTarget()
 end
 
 RunService.RenderStepped:Connect(function(dt)
+    if not assistEnabled then return end
     local target = getBestTarget()
     if not target then return end
 
@@ -79,6 +83,7 @@ local function createESP(plr)
     hl.FillTransparency = ESP_FILL_TRANSPARENCY
     hl.OutlineTransparency = 0
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Enabled = assistEnabled
     hl.Parent = char
 
     espObjects[plr] = hl
@@ -89,6 +94,14 @@ local function removeESP(plr)
     if hl then
         hl:Destroy()
         espObjects[plr] = nil
+    end
+end
+
+local function setESPEnabled(state)
+    for _, hl in pairs(espObjects) do
+        if hl and hl.Parent then
+            hl.Enabled = state
+        end
     end
 end
 
@@ -106,3 +119,56 @@ end
 for _, plr in ipairs(Players:GetPlayers()) do onPlayerAdded(plr) end
 Players.PlayerAdded:Connect(onPlayerAdded)
 Players.PlayerRemoving:Connect(removeESP)
+
+------------------------------------------------------------
+-- 🔘 زر التفعيل/الإيقاف (UI)
+------------------------------------------------------------
+local playerGui = localPlayer:WaitForChild("PlayerGui")
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AssistToggleGui"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.Parent = playerGui
+
+local button = Instance.new("TextButton")
+button.Name = "ToggleButton"
+button.Size = UDim2.new(0, 130, 0, 45)
+button.Position = UDim2.new(1, -150, 0, 20) -- أعلى اليمين
+button.BackgroundColor3 = Color3.fromRGB(40, 170, 70)
+button.BackgroundTransparency = 0.1
+button.TextColor3 = Color3.fromRGB(255, 255, 255)
+button.TextScaled = true
+button.Font = Enum.Font.GothamBold
+button.Text = "ON ✅"
+button.AutoButtonColor = true
+button.BorderSizePixel = 0
+button.Parent = screenGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 10)
+corner.Parent = button
+
+local stroke = Instance.new("UIStroke")
+stroke.Color = Color3.fromRGB(255, 255, 255)
+stroke.Thickness = 2
+stroke.Transparency = 0.4
+stroke.Parent = button
+
+local function updateButton()
+    if assistEnabled then
+        button.Text = "ON ✅"
+        button.BackgroundColor3 = Color3.fromRGB(40, 170, 70)
+    else
+        button.Text = "OFF ❌"
+        button.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+    end
+end
+
+button.MouseButton1Click:Connect(function()
+    assistEnabled = not assistEnabled
+    setESPEnabled(assistEnabled)
+    updateButton()
+end)
+
+updateButton()
