@@ -1,99 +1,119 @@
--- Player Tracking System
+-- KARRAR ESP V1.0
 -- Roblox Studio - LocalScript
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
 local LocalPlayer = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 
-local TrackingEnabled = false
-local Target = nil
+local ESPEnabled = false
+local ESPColor = Color3.fromRGB(170, 70, 255)
 
-local Smoothness = 0.12
-local MaxDistance = 300
+local ESPObjects = {}
 
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TrackingUI"
-ScreenGui.ResetOnSpawn = false
-ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+-- GUI
+local GUI = Instance.new("ScreenGui")
+GUI.Name = "KarrarESP"
+GUI.ResetOnSpawn = false
+GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
 local Button = Instance.new("TextButton")
+Button.Name = "ESPButton"
 Button.Size = UDim2.fromOffset(150, 45)
 Button.Position = UDim2.new(0.5, -75, 0.85, 0)
-Button.Text = "Tracking: OFF"
+Button.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+Button.TextColor3 = Color3.new(1, 1, 1)
 Button.TextScaled = true
-Button.Parent = ScreenGui
+Button.Text = "ESP : OFF"
+Button.Parent = GUI
 
-local function GetClosestPlayer()
-
-    local Closest = nil
-    local ShortestDistance = MaxDistance
-
-    for _, Player in ipairs(Players:GetPlayers()) do
-
-        if Player ~= LocalPlayer then
-
-            local Character = Player.Character
-            local Head = Character and Character:FindFirstChild("Head")
-            local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
-
-            if Head and Humanoid and Humanoid.Health > 0 then
-
-                local Distance =
-                    (Camera.CFrame.Position - Head.Position).Magnitude
-
-                if Distance < ShortestDistance then
-                    ShortestDistance = Distance
-                    Closest = Head
-                end
-
-            end
-        end
+-- REMOVE ESP
+local function RemoveESP(Player)
+    if ESPObjects[Player] then
+        ESPObjects[Player]:Destroy()
+        ESPObjects[Player] = nil
     end
-
-    return Closest
 end
 
+-- CREATE ESP
+local function CreateESP(Player)
+    if Player == LocalPlayer then return end
+
+    local Character = Player.Character
+    if not Character then return end
+
+    RemoveESP(Player)
+
+    local Highlight = Instance.new("Highlight")
+    Highlight.Name = "KarrarHighlight"
+    Highlight.Adornee = Character
+
+    Highlight.FillColor = ESPColor
+    Highlight.OutlineColor = ESPColor
+
+    Highlight.FillTransparency = 0.75
+    Highlight.OutlineTransparency = 0
+
+    Highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+    Highlight.Parent = Character
+
+    ESPObjects[Player] = Highlight
+end
+
+-- UPDATE PLAYER
+local function UpdatePlayer(Player)
+    if not ESPEnabled then return end
+
+    if Player.Character then
+        CreateESP(Player)
+    end
+end
+
+-- ENABLE
+local function EnableESP()
+    ESPEnabled = true
+    Button.Text = "ESP : ON"
+
+    for _, Player in ipairs(Players:GetPlayers()) do
+        UpdatePlayer(Player)
+    end
+end
+
+-- DISABLE
+local function DisableESP()
+    ESPEnabled = false
+    Button.Text = "ESP : OFF"
+
+    for Player in pairs(ESPObjects) do
+        RemoveESP(Player)
+    end
+end
+
+-- BUTTON
 Button.Activated:Connect(function()
-
-    TrackingEnabled = not TrackingEnabled
-
-    Button.Text = TrackingEnabled
-        and "Tracking: ON"
-        or "Tracking: OFF"
-
-    if not TrackingEnabled then
-        Target = nil
+    if ESPEnabled then
+        DisableESP()
+    else
+        EnableESP()
     end
-
 end)
 
-RunService.RenderStepped:Connect(function()
+-- PLAYER EVENTS
+local function SetupPlayer(Player)
+    if Player == LocalPlayer then return end
 
-    if not TrackingEnabled then
-        return
-    end
+    Player.CharacterAdded:Connect(function()
+        task.wait(0.5)
+        UpdatePlayer(Player)
+    end)
+end
 
-    if not Target or not Target.Parent then
-        Target = GetClosestPlayer()
-    end
+Players.PlayerAdded:Connect(SetupPlayer)
 
-    if Target then
-
-        local CurrentPosition = Camera.CFrame.Position
-        local TargetPosition = Target.Position
-
-        local DesiredCFrame = CFrame.lookAt(
-            CurrentPosition,
-            TargetPosition
-        )
-
-        Camera.CFrame = Camera.CFrame:Lerp(
-            DesiredCFrame,
-            Smoothness
-        )
-
-    end
-
+Players.PlayerRemoving:Connect(function(Player)
+    RemoveESP(Player)
 end)
+
+for _, Player in ipairs(Players:GetPlayers()) do
+    SetupPlayer(Player)
+end
+
+print("KARRAR ESP V1.0 Loaded")
