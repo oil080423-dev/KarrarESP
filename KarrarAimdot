@@ -1,164 +1,159 @@
--- ============================================
--- 🎯 تتبع الرأس الثابت فقط (Head Tracking Only)
--- ============================================
-
+-- LocalScript في StarterPlayerScripts
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
 
--- ═══════════════════════════════════════════
--- ⚙️ الإعدادات
--- ═══════════════════════════════════════════
-local CONFIG = {
-    FOV_RADIUS = 150,          -- نطاق البحث على الشاشة (بكسل)
-    AIM_SMOOTHNESS = 0.35,     -- نعومة الانتقال (0.1 سريع - 0.5 بطيء)
-    STICKINESS = 0.85,         -- ثبات على الهدف الحالي
-    MAX_DISTANCE = 500,        -- أقصى مسافة (studs)
-    ACTIVATION_KEY = Enum.UserInputType.MouseButton2, -- زر التصويب
-    HEAD_OFFSET = Vector3.new(0, 0, 0),
-}
+local camera = workspace.CurrentCamera
+local localPlayer = Players.LocalPlayer
 
--- ═══════════════════════════════════════════
--- 📦 المتغيرات
--- ═══════════════════════════════════════════
-local currentTarget = nil
-local isAiming = false
+-- ⚙️ إعدادات Aim Assist
+local ASSIST_STRENGTH = 0.95
+local MAX_DISTANCE = 300
+local FOV_ANGLE = 120
+local SMOOTHING = 40
+local AIM_HEIGHT_OFFSET = 0.5
 
--- ═══════════════════════════════════════════
--- 🛠️ دوال مساعدة
--- ═══════════════════════════════════════════
+-- ⚙️ إعدادات ESP
+local ESP_FILL_COLOR = Color3.fromRGB(255, 0, 0)
+local ESP_OUTLINE_COLOR = Color3.fromRGB(255, 255, 255)
+local ESP_FILL_TRANSPARENCY = 0.5
+local ESP_SHOW_NAME = true
+local ESP_SHOW_DISTANCE = true
+local ESP_MAX_DISTANCE = 500
 
-local function HasLineOfSight(targetHead)
-    local origin = Camera.CFrame.Position
-    local direction = targetHead.Position - origin
-    local distance = direction.Magnitude
-
-    if distance > CONFIG.MAX_DISTANCE then
-        return false, distance
-    end
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {
-        LocalPlayer.Character,
-        Camera
-    }
-
-    local result = workspace:Raycast(origin, direction, params)
-    if not result then return true, distance end
-    if result.Instance and result.Instance:IsDescendantOf(targetHead.Parent) then
-        return true, distance
-    end
-    return false, distance
-end
-
-local function GetScreenDistance(targetHead)
-    local screenPos, onScreen = Camera:WorldToViewportPoint(targetHead.Position)
-    if not onScreen then return math.huge end
-    local mousePos = UserInputService:GetMouseLocation()
-    return (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-end
-
-local function IsEnemy(player)
-    if player == LocalPlayer then return false end
-    if not player.Character then return false end
-    if LocalPlayer.Team and player.Team and LocalPlayer.Team == player.Team then
-        return false
-    end
-    return true
-end
-
-local function IsValidTarget(player)
-    if not IsEnemy(player) then return false end
-    local char = player.Character
-    if not char then return false end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then return false end
-    local head = char:FindFirstChild("Head")
-    if not head then return false end
-    return true, head
-end
-
--- ═══════════════════════════════════════════
--- 🎯 إيجاد أفضل هدف
--- ═══════════════════════════════════════════
-local function FindBestTarget()
+------------------------------------------------------------
+-- 🎯 Aim Assist
+------------------------------------------------------------
+local function getBestTarget()
     local bestTarget = nil
     local bestScore = math.huge
+    local camPos = camera.CFrame.Position
+    local camLook = camera.CFrame.LookVector
 
-    -- الثبات على الهدف الحالي
-    if currentTarget then
-        local valid, head = IsValidTarget(currentTarget)
-        if valid then
-            local screenDist = GetScreenDistance(head)
-            local hasLOS = HasLineOfSight(head)
-            if hasLOS and screenDist < CONFIG.FOV_RADIUS then
-                bestTarget = currentTarget
-                bestScore = screenDist * (1 - CONFIG.STICKINESS)
-            end
-        else
-            currentTarget = nil
-        end
-    end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr == localPlayer then continue end
+        local char = plr.Character
+        if not char then continue end
 
-    -- البحث عن هدف جديد
-    for _, player in pairs(Players:GetPlayers()) do
-        if player == currentTarget then continue end
-        local valid, head = IsValidTarget(player)
-        if not valid then continue end
-        local screenDist = GetScreenDistance(head)
-        if screenDist > CONFIG.FOV_RADIUS then continue end
-        local hasLOS, worldDist = HasLineOfSight(head)
-        if not hasLOS then continue end
-        local score = screenDist + (worldDist * 0.05)
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if not hrp or not hum or hum.Health <= 0 then continue end
+
+        local dir = hrp.Position - camPos
+        local dist = dir.Magnitude
+        if dist > MAX_DISTANCE then continue end
+
+        local angle = math.deg(math.acos(math.clamp(camLook:Dot(dir.Unit), -1, 1)))
+        if angle > FOV_ANGLE then continue end
+
+        local score = angle + (dist / MAX_DISTANCE) * 15
         if score < bestScore then
             bestScore = score
-            bestTarget = player
+            bestTarget = hrp
         end
     end
-
-    currentTarget = bestTarget
-    return currentTarget
+    return bestTarget
 end
 
--- ═══════════════════════════════════════════
--- 🎮 التحكم
--- ═══════════════════════════════════════════
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.UserInputType == CONFIG.ACTIVATION_KEY then
-        isAiming = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == CONFIG.ACTIVATION_KEY then
-        isAiming = false
-        currentTarget = nil
-    end
-end)
-
--- ═══════════════════════════════════════════
--- 🔄 الحلقة الرئيسية — تتبع الرأس فقط
--- ═══════════════════════════════════════════
-RunService.RenderStepped:Connect(function(deltaTime)
-    if not isAiming then return end
-    if not LocalPlayer.Character then return end
-
-    local target = FindBestTarget()
+RunService.RenderStepped:Connect(function(dt)
+    local target = getBestTarget()
     if not target then return end
 
-    local targetHead = target.Character and target.Character:FindFirstChild("Head")
-    if not targetHead then return end
+    local aimPoint = target.Position + Vector3.new(0, AIM_HEIGHT_OFFSET, 0)
+    local currentCF = camera.CFrame
+    local targetCF = CFrame.new(currentCF.Position, aimPoint)
 
-    local targetPosition = targetHead.Position + CONFIG.HEAD_OFFSET
-    local cameraPos = Camera.CFrame.Position
-
-    -- ✅ تتبع ثابت مباشر — بدون تنبؤ، بدون velocity، بدون أي تعديل
-    local goalCFrame = CFrame.lookAt(cameraPos, targetPosition)
-    local smoothFactor = 1 - math.pow(1 - CONFIG.AIM_SMOOTHNESS, deltaTime * 60)
-
-    Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, smoothFactor)
+    local alpha = math.clamp(ASSIST_STRENGTH * SMOOTHING * dt, 0, 1)
+    camera.CFrame = currentCF:Lerp(targetCF, alpha)
 end)
+
+------------------------------------------------------------
+-- 👁️ ESP (Highlight + BillboardGui)
+------------------------------------------------------------
+local espObjects = {}
+
+local function createESP(plr)
+    if plr == localPlayer then return end
+    local char = plr.Character
+    if not char then return end
+
+    -- Highlight (يظهر عبر الجدران)
+    local hl = Instance.new("Highlight")
+    hl.Name = "AssistESP_Highlight"
+    hl.FillColor = ESP_FILL_COLOR
+    hl.OutlineColor = ESP_OUTLINE_COLOR
+    hl.FillTransparency = ESP_FILL_TRANSPARENCY
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = char
+
+    -- BillboardGui فوق الرأس (اسم + مسافة)
+    local head = char:FindFirstChild("Head")
+    local billboard
+    if head then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "AssistESP_Billboard"
+        billboard.Size = UDim2.new(0, 200, 0, 50)
+        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+        billboard.AlwaysOnTop = true
+        billboard.MaxDistance = ESP_MAX_DISTANCE
+        billboard.Parent = head
+
+        local label = Instance.new("TextLabel")
+        label.Name = "InfoLabel"
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = ESP_FILL_COLOR
+        label.TextStrokeTransparency = 0
+        label.Font = Enum.Font.GothamBold
+        label.TextSize = 16
+        label.Text = ""
+        label.Parent = billboard
+    end
+
+    espObjects[plr] = {highlight = hl, billboard = billboard, label = billboard and billboard:FindFirstChild("InfoLabel")}
+end
+
+local function removeESP(plr)
+    local data = espObjects[plr]
+    if data then
+        if data.highlight then data.highlight:Destroy() end
+        if data.billboard then data.billboard:Destroy() end
+        espObjects[plr] = nil
+    end
+end
+
+-- تحديث النص (اسم + مسافة)
+RunService.Heartbeat:Connect(function()
+    for plr, data in pairs(espObjects) do
+        if not data.label then continue end
+        local char = plr.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+
+        if hrp and hum and hum.Health > 0 then
+            local dist = math.floor((hrp.Position - camera.CFrame.Position).Magnitude)
+            local parts = {}
+            if ESP_SHOW_NAME then table.insert(parts, plr.Name) end
+            if ESP_SHOW_DISTANCE then table.insert(parts, "[" .. dist .. "m]") end
+            data.label.Text = table.concat(parts, " ")
+        else
+            data.label.Text = ""
+        end
+    end
+end)
+
+-- ربط الأحداث
+local function onCharacterAdded(plr, char)
+    task.wait(0.5)
+    createESP(plr)
+end
+
+local function onPlayerAdded(plr)
+    if plr == localPlayer then return end
+    plr.CharacterAdded:Connect(function(char) onCharacterAdded(plr, char) end)
+    if plr.Character then createESP(plr) end
+end
+
+for _, plr in ipairs(Players:GetPlayers()) do onPlayerAdded(plr) end
+Players.PlayerAdded:Connect(onPlayerAdded)
+Players.PlayerRemoving:Connect(removeESP)
