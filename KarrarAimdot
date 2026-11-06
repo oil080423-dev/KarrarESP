@@ -1,164 +1,492 @@
--- KARRAR KNIFE PROJECT
--- V1.0
--- Roblox Studio - LocalScript
+-- ═══════════════════════════════════════════════════════
+-- 🎯 نظام التصويب + ESP الاحترافي
+-- ═══════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-
-local LocalPlayer = Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
 
-local FOV_RADIUS = 150
-local MAX_DISTANCE = 300
+-- ═══════════════════════════════════════════
+-- ⚙️ الإعدادات
+-- ═══════════════════════════════════════════
+local CONFIG = {
+    -- إعدادات التصويب
+    FOV_RADIUS = 150,
+    AIM_SMOOTHNESS = 0.35,
+    STICKINESS = 0.85,
+    MAX_DISTANCE = 500,
+    HEAD_OFFSET = Vector3.new(0, 0, 0),
+    AIM_KEY = Enum.KeyCode.Q,
+    
+    -- إعدادات ESP
+    ESP_KEY = Enum.KeyCode.E,
+    ESP_MAX_DISTANCE = 1000,
+    ESP_SHOW_HEALTH = true,
+    ESP_SHOW_NAME = true,
+    ESP_SHOW_DISTANCE = true,
+    ESP_BOX_COLOR = Color3.fromRGB(255, 50, 50),
+    ESP_TEXT_COLOR = Color3.fromRGB(255, 255, 255),
+    ESP_HEALTH_COLOR = Color3.fromRGB(0, 255, 0),
+}
 
-local ESP_COLOR = Color3.fromRGB(170, 70, 255)
-local FOV_COLOR = Color3.fromRGB(255, 0, 0)
+-- ═══════════════════════════════════════════
+-- 📦 المتغيرات
+-- ═══════════════════════════════════════════
+local currentTarget = nil
+local isAiming = false
+local isESPEnabled = false
+local espObjects = {}  -- تخزين كائنات ESP لكل لاعب
 
-local Enabled = true
-local Highlights = {}
+-- ═══════════════════════════════════════════
+-- 🛠️ دوال التصويب
+-- ═══════════════════════════════════════════
 
--- GUI
-local GUI = Instance.new("ScreenGui")
-GUI.Name = "KarrarKnifeSystem"
-GUI.ResetOnSpawn = false
-GUI.Parent = LocalPlayer.PlayerGui
-
--- RED FOV
-local Circle = Instance.new("Frame")
-Circle.Size = UDim2.fromOffset(
-    FOV_RADIUS * 2,
-    FOV_RADIUS * 2
-)
-Circle.AnchorPoint = Vector2.new(0.5, 0.5)
-Circle.Position = UDim2.fromScale(0.5, 0.5)
-Circle.BackgroundTransparency = 1
-Circle.Parent = GUI
-
-local Round = Instance.new("UICorner")
-Round.CornerRadius = UDim.new(1, 0)
-Round.Parent = Circle
-
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = FOV_COLOR
-Stroke.Thickness = 2
-Stroke.Parent = Circle
-
--- STATUS
-local Status = Instance.new("TextLabel")
-Status.Size = UDim2.fromOffset(200, 35)
-Status.Position = UDim2.new(0.5, -100, 0.72, 0)
-Status.BackgroundTransparency = 1
-Status.TextColor3 = Color3.new(1, 1, 1)
-Status.TextScaled = true
-Status.Parent = GUI
-
--- ESP
-local function RemoveESP(Player)
-    if Highlights[Player] then
-        Highlights[Player]:Destroy()
-        Highlights[Player] = nil
+local function HasLineOfSight(targetHead)
+    local origin = Camera.CFrame.Position
+    local direction = targetHead.Position - origin
+    local distance = direction.Magnitude
+    
+    if distance > CONFIG.MAX_DISTANCE then return false, distance end
+    
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+    
+    local result = workspace:Raycast(origin, direction, params)
+    
+    if not result then return true, distance end
+    if result.Instance and result.Instance:IsDescendantOf(targetHead.Parent) then
+        return true, distance
     end
+    return false, distance
 end
 
-local function CreateESP(Player)
-    if Player == LocalPlayer then return end
-    if Player:GetAttribute("AllowCameraAssist") ~= true then return end
-
-    local Character = Player.Character
-    if not Character then return end
-
-    RemoveESP(Player)
-
-    local Highlight = Instance.new("Highlight")
-    Highlight.Adornee = Character
-    Highlight.FillColor = ESP_COLOR
-    Highlight.OutlineColor = ESP_COLOR
-    Highlight.FillTransparency = 0.8
-    Highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-    Highlight.Parent = GUI
-
-    Highlights[Player] = Highlight
+local function GetScreenDistance(targetHead)
+    local screenPos, onScreen = Camera:WorldToViewportPoint(targetHead.Position)
+    if not onScreen then return math.huge end
+    
+    local mousePos = UserInputService:GetMouseLocation()
+    return (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
 end
 
--- TARGET INDICATOR
-local function GetTargetCount()
-    local Count = 0
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    if not player.Character then return false end
+    if LocalPlayer.Team and player.Team then
+        if LocalPlayer.Team == player.Team then return false end
+    end
+    return true
+end
 
-    for _, Player in ipairs(Players:GetPlayers()) do
-        if Player ~= LocalPlayer
-        and Player:GetAttribute("AllowCameraAssist") == true then
+local function IsValidTarget(player)
+    if not IsEnemy(player) then return false end
+    local char = player.Character
+    if not char then return false end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    local head = char:FindFirstChild("Head")
+    if not head then return false end
+    return true, head
+end
 
-            local Character = Player.Character
-            local Head = Character and Character:FindFirstChild("Head")
-            local Humanoid = Character
-                and Character:FindFirstChildOfClass("Humanoid")
+local function FindBestTarget()
+    local bestTarget = nil
+    local bestScore = math.huge
+    
+    if currentTarget then
+        local valid, head = IsValidTarget(currentTarget)
+        if valid then
+            local screenDist = GetScreenDistance(head)
+            local hasLOS = HasLineOfSight(head)
+            if hasLOS and screenDist < CONFIG.FOV_RADIUS then
+                bestTarget = currentTarget
+                bestScore = screenDist * (1 - CONFIG.STICKINESS)
+            end
+        else
+            currentTarget = nil
+        end
+    end
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if player == currentTarget then continue end
+        local valid, head = IsValidTarget(player)
+        if not valid then continue end
+        local screenDist = GetScreenDistance(head)
+        if screenDist > CONFIG.FOV_RADIUS then continue end
+        local hasLOS, worldDist = HasLineOfSight(head)
+        if not hasLOS then continue end
+        local score = screenDist + (worldDist * 0.05)
+        if score < bestScore then
+            bestScore = score
+            bestTarget = player
+        end
+    end
+    
+    currentTarget = bestTarget
+    return currentTarget
+end
 
-            if Head and Humanoid and Humanoid.Health > 0 then
+-- ═══════════════════════════════════════════
+-- 👁️ دوال ESP
+-- ═══════════════════════════════════════════
 
-                local Position, Visible =
-                    Camera:WorldToViewportPoint(Head.Position)
+-- إنشاء ESP للاعب معين
+local function CreateESP(player)
+    if player == LocalPlayer then return end
+    if espObjects[player] then return end
+    
+    local esp = {}
+    
+    -- 🔹 Box Highlight (يظهر عبر الجدران)
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.FillColor = CONFIG.ESP_BOX_COLOR
+    highlight.FillTransparency = 0.7
+    highlight.OutlineColor = CONFIG.ESP_BOX_COLOR
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Adornee = player.Character
+    highlight.Parent = player.Character
+    
+    esp.Highlight = highlight
+    
+    -- 🔹 BillboardGui (الاسم + الصحة + المسافة فوق الرأس)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_Billboard"
+    billboard.Size = UDim2.new(0, 200, 0, 60)
+    billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+    billboard.AlwaysOnTop = true
+    billboard.MaxDistance = CONFIG.ESP_MAX_DISTANCE
+    billboard.Parent = player.Character:FindFirstChild("Head") or player.Character
+    
+    -- إطار خلفي
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    frame.BackgroundTransparency = 0.5
+    frame.BorderSizePixel = 0
+    frame.Parent = billboard
+    
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 8)
+    frameCorner.Parent = frame
+    
+    -- اسم اللاعب
+    if CONFIG.ESP_SHOW_NAME then
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Name = "NameLabel"
+        nameLabel.Size = UDim2.new(1, 0, 0.4, 0)
+        nameLabel.Position = UDim2.new(0, 0, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.TextColor3 = CONFIG.ESP_TEXT_COLOR
+        nameLabel.TextStrokeTransparency = 0
+        nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        nameLabel.TextScaled = true
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.Text = player.Name
+        nameLabel.Parent = frame
+    end
+    
+    -- شريط الصحة
+    if CONFIG.ESP_SHOW_HEALTH then
+        local healthBg = Instance.new("Frame")
+        healthBg.Name = "HealthBg"
+        healthBg.Size = UDim2.new(0.9, 0, 0.15, 0)
+        healthBg.Position = UDim2.new(0.05, 0, 0.45, 0)
+        healthBg.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        healthBg.BorderSizePixel = 0
+        healthBg.Parent = frame
+        
+        local healthBgCorner = Instance.new("UICorner")
+        healthBgCorner.CornerRadius = UDim.new(0, 4)
+        healthBgCorner.Parent = healthBg
+        
+        local healthFill = Instance.new("Frame")
+        healthFill.Name = "HealthFill"
+        healthFill.Size = UDim2.new(1, 0, 1, 0)
+        healthFill.BackgroundColor3 = CONFIG.ESP_HEALTH_COLOR
+        healthFill.BorderSizePixel = 0
+        healthFill.Parent = healthBg
+        
+        local healthFillCorner = Instance.new("UICorner")
+        healthFillCorner.CornerRadius = UDim.new(0, 4)
+        healthFillCorner.Parent = healthFill
+        
+        esp.HealthFill = healthFill
+    end
+    
+    -- المسافة
+    if CONFIG.ESP_SHOW_DISTANCE then
+        local distLabel = Instance.new("TextLabel")
+        distLabel.Name = "DistanceLabel"
+        distLabel.Size = UDim2.new(1, 0, 0.3, 0)
+        distLabel.Position = UDim2.new(0, 0, 0.7, 0)
+        distLabel.BackgroundTransparency = 1
+        distLabel.TextColor3 = CONFIG.ESP_TEXT_COLOR
+        distLabel.TextStrokeTransparency = 0
+        distLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        distLabel.TextScaled = true
+        distLabel.Font = Enum.Font.Gotham
+        distLabel.Text = "0m"
+        distLabel.Parent = frame
+        
+        esp.DistanceLabel = distLabel
+    end
+    
+    esp.Billboard = billboard
+    esp.Player = player
+    
+    espObjects[player] = esp
+end
 
-                local Center = Camera.ViewportSize / 2
+-- إزالة ESP للاعب
+local function RemoveESP(player)
+    local esp = espObjects[player]
+    if not esp then return end
+    
+    if esp.Highlight then esp.Highlight:Destroy() end
+    if esp.Billboard then esp.Billboard:Destroy() end
+    
+    espObjects[player] = nil
+end
 
-                local ScreenDistance = (
-                    Vector2.new(Position.X, Position.Y) - Center
-                ).Magnitude
-
-                local WorldDistance = (
-                    Camera.CFrame.Position - Head.Position
-                ).Magnitude
-
-                if Visible
-                and ScreenDistance <= FOV_RADIUS
-                and WorldDistance <= MAX_DISTANCE then
-                    Count += 1
-                end
+-- تحديث ESP لكل اللاعبين
+local function UpdateESP()
+    if not isESPEnabled then return end
+    
+    for player, esp in pairs(espObjects) do
+        if not player.Character then
+            RemoveESP(player)
+            continue
+        end
+        
+        local char = player.Character
+        local head = char:FindFirstChild("Head")
+        local humanoid = char:FindFirstChildOfClass("Humanoid")
+        
+        if not head or not humanoid then continue end
+        
+        -- المسافة بين اللاعب والهدف
+        local myChar = LocalPlayer.Character
+        if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then continue end
+        
+        local myPos = myChar.HumanoidRootPart.Position
+        local targetPos = head.Position
+        local distance = (myPos - targetPos).Magnitude
+        
+        -- إخفاء إذا بعيد جداً
+        if esp.Billboard then
+            esp.Billboard.Enabled = distance <= CONFIG.ESP_MAX_DISTANCE
+        end
+        if esp.Highlight then
+            esp.Highlight.Enabled = distance <= CONFIG.ESP_MAX_DISTANCE
+        end
+        
+        -- تحديث المسافة
+        if esp.DistanceLabel then
+            esp.DistanceLabel.Text = string.format("%dm", math.floor(distance))
+        end
+        
+        -- تحديث شريط الصحة
+        if esp.HealthFill then
+            local healthPercent = humanoid.Health / humanoid.MaxHealth
+            esp.HealthFill.Size = UDim2.new(healthPercent, 0, 1, 0)
+            
+            -- تغيير اللون حسب الصحة
+            if healthPercent > 0.6 then
+                esp.HealthFill.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+            elseif healthPercent > 0.3 then
+                esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+            else
+                esp.HealthFill.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
             end
         end
     end
-
-    return Count
 end
 
--- UPDATE
-RunService.RenderStepped:Connect(function()
-
-    if not Enabled then return end
-
-    Circle.Position = UDim2.fromOffset(
-        Camera.ViewportSize.X / 2,
-        Camera.ViewportSize.Y / 2
-    )
-
-    Status.Text = "Targets: " .. GetTargetCount()
-
-end)
-
--- PLAYER EVENTS
-local function SetupPlayer(Player)
-
-    if Player == LocalPlayer then return end
-
-    Player.CharacterAdded:Connect(function()
-        task.wait(0.5)
-        if Enabled then
-            CreateESP(Player)
+-- تفعيل/إطفاء ESP لكل اللاعبين
+local function SetESPState(enabled)
+    if enabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                CreateESP(player)
+            end
         end
-    end)
-
-    if Player.Character then
-        CreateESP(Player)
+    else
+        for player, _ in pairs(espObjects) do
+            RemoveESP(player)
+        end
     end
 end
 
-Players.PlayerAdded:Connect(SetupPlayer)
+-- ═══════════════════════════════════════════
+-- 🖥️ إنشاء واجهة الأزرار
+-- ═══════════════════════════════════════════
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-Players.PlayerRemoving:Connect(function(Player)
-    RemoveESP(Player)
-end)
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AimESP_UI"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
 
-for _, Player in ipairs(Players:GetPlayers()) do
-    SetupPlayer(Player)
+-- زر التصويب
+local aimButton = Instance.new("TextButton")
+aimButton.Name = "AimButton"
+aimButton.Size = UDim2.new(0, 120, 0, 120)
+aimButton.Position = UDim2.new(1, -140, 1, -300)
+aimButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+aimButton.BackgroundTransparency = 0.2
+aimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimButton.Text = "🎯\nالتصويب\n[Q]"
+aimButton.TextScaled = true
+aimButton.Font = Enum.Font.GothamBold
+aimButton.BorderSizePixel = 0
+aimButton.Parent = screenGui
+
+local aimCorner = Instance.new("UICorner")
+aimCorner.CornerRadius = UDim.new(0, 20)
+aimCorner.Parent = aimButton
+
+local aimStroke = Instance.new("UIStroke")
+aimStroke.Color = Color3.fromRGB(255, 255, 255)
+aimStroke.Thickness = 2
+aimStroke.Transparency = 0.5
+aimStroke.Parent = aimButton
+
+-- زر ESP
+local espButton = Instance.new("TextButton")
+espButton.Name = "ESPButton"
+espButton.Size = UDim2.new(0, 120, 0, 120)
+espButton.Position = UDim2.new(1, -140, 1, -170)
+espButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+espButton.BackgroundTransparency = 0.2
+espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+espButton.Text = "👁️\nESP\n[E]"
+espButton.TextScaled = true
+espButton.Font = Enum.Font.GothamBold
+espButton.BorderSizePixel = 0
+espButton.Parent = screenGui
+
+local espCorner = Instance.new("UICorner")
+espCorner.CornerRadius = UDim.new(0, 20)
+espCorner.Parent = espButton
+
+local espStroke = Instance.new("UIStroke")
+espStroke.Color = Color3.fromRGB(255, 255, 255)
+espStroke.Thickness = 2
+espStroke.Transparency = 0.5
+espStroke.Parent = espButton
+
+-- ═══════════════════════════════════════════
+-- 🔄 تحديث شكل الأزرار
+-- ═══════════════════════════════════════════
+local function UpdateAimButton()
+    if isAiming then
+        aimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        aimButton.Text = "🎯\nمفعّل ✅\n[Q]"
+        aimStroke.Color = Color3.fromRGB(0, 255, 0)
+        aimStroke.Transparency = 0
+    else
+        aimButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        aimButton.Text = "🎯\nمغلق\n[Q]"
+        aimStroke.Color = Color3.fromRGB(255, 255, 255)
+        aimStroke.Transparency = 0.5
+    end
 end
 
-print("KARRAR SYSTEM LOADED")
+local function UpdateESPButton()
+    if isESPEnabled then
+        espButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+        espButton.Text = "👁️\nمفعّل ✅\n[E]"
+        espStroke.Color = Color3.fromRGB(0, 200, 255)
+        espStroke.Transparency = 0
+    else
+        espButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        espButton.Text = "👁️\nمغلق\n[E]"
+        espStroke.Color = Color3.fromRGB(255, 255, 255)
+        espStroke.Transparency = 0.5
+    end
+end
+
+-- ═══════════════════════════════════════════
+-- 🎮 دوال التبديل
+-- ═══════════════════════════════════════════
+local function ToggleAim()
+    isAiming = not isAiming
+    if not isAiming then currentTarget = nil end
+    UpdateAimButton()
+    print(isAiming and "🎯 التصويب: مفعّل" or "🎯 التصويب: متوقف")
+end
+
+local function ToggleESP()
+    isESPEnabled = not isESPEnabled
+    SetESPState(isESPEnabled)
+    UpdateESPButton()
+    print(isESPEnabled and "👁️ ESP: مفعّل" or "👁️ ESP: متوقف")
+end
+
+-- ═══════════════════════════════════════════
+-- ⌨️ ربط الكيبورد
+-- ═══════════════════════════════════════════
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == CONFIG.AIM_KEY then ToggleAim() end
+    if input.KeyCode == CONFIG.ESP_KEY then ToggleESP() end
+end)
+
+-- ═══════════════════════════════════════════
+-- 👆 ربط الأزرار
+-- ═══════════════════════════════════════════
+aimButton.MouseButton1Click:Connect(ToggleAim)
+espButton.MouseButton1Click:Connect(ToggleESP)
+
+-- ═══════════════════════════════════════════
+-- 🔄 إدارة اللاعبين الجدد (للـ ESP)
+-- ═══════════════════════════════════════════
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function(character)
+        task.wait(0.5)
+        if isESPEnabled and player ~= LocalPlayer then
+            CreateESP(player)
+        end
+    end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    RemoveESP(player)
+end)
+
+-- ═══════════════════════════════════════════
+-- 🔄 الحلقة الرئيسية
+-- ═══════════════════════════════════════════
+RunService.RenderStepped:Connect(function(deltaTime)
+    -- التصويب
+    if isAiming and LocalPlayer.Character then
+        local target = FindBestTarget()
+        if target then
+            local targetHead = target.Character and target.Character:FindFirstChild("Head")
+            if targetHead then
+                local targetPosition = targetHead.Position + CONFIG.HEAD_OFFSET
+                local cameraPos = Camera.CFrame.Position
+                local goalCFrame = CFrame.lookAt(cameraPos, targetPosition)
+                local smoothFactor = 1 - math.pow(1 - CONFIG.AIM_SMOOTHNESS, deltaTime * 60)
+                Camera.CFrame = Camera.CFrame:Lerp(goalCFrame, smoothFactor)
+            end
+        end
+    end
+    
+    -- ESP
+    if isESPEnabled then
+        UpdateESP()
+    end
+end)
+
+-- ═══════════════════════════════════════════
+-- ✅ إعداد أولي
+-- ═══════════════════════════════════════════
+UpdateAimButton()
+UpdateESPButton()
+print("✅ النظام جاهز - Q للتصويب، E للـ ESP")
