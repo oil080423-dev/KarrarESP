@@ -10,7 +10,6 @@ local ASSIST_STRENGTH = 0.95
 local MAX_DISTANCE = 300
 local FOV_ANGLE = 120
 local SMOOTHING = 40
-local AIM_HEIGHT_OFFSET = 0.5
 
 -- ⚙️ إعدادات ESP
 local ESP_FILL_COLOR = Color3.fromRGB(255, 0, 0)
@@ -18,7 +17,7 @@ local ESP_OUTLINE_COLOR = Color3.fromRGB(255, 255, 255)
 local ESP_FILL_TRANSPARENCY = 0.5
 
 ------------------------------------------------------------
--- 🎯 Aim Assist
+-- 🎯 Aim Assist (يستهدف الرأس)
 ------------------------------------------------------------
 local function getBestTarget()
     local bestTarget = nil
@@ -32,8 +31,9 @@ local function getBestTarget()
         if not char then continue end
 
         local hum = char:FindFirstChildOfClass("Humanoid")
+        local head = char:FindFirstChild("Head")
         local hrp = char:FindFirstChild("HumanoidRootPart")
-        if not hrp or not hum or hum.Health <= 0 then continue end
+        if not head or not hrp or not hum or hum.Health <= 0 then continue end
 
         local dir = hrp.Position - camPos
         local dist = dir.Magnitude
@@ -45,7 +45,7 @@ local function getBestTarget()
         local score = angle + (dist / MAX_DISTANCE) * 15
         if score < bestScore then
             bestScore = score
-            bestTarget = hrp
+            bestTarget = head
         end
     end
     return bestTarget
@@ -55,16 +55,15 @@ RunService.RenderStepped:Connect(function(dt)
     local target = getBestTarget()
     if not target then return end
 
-    local aimPoint = target.Position + Vector3.new(0, AIM_HEIGHT_OFFSET, 0)
     local currentCF = camera.CFrame
-    local targetCF = CFrame.new(currentCF.Position, aimPoint)
+    local targetCF = CFrame.new(currentCF.Position, target.Position)
 
     local alpha = math.clamp(ASSIST_STRENGTH * SMOOTHING * dt, 0, 1)
     camera.CFrame = currentCF:Lerp(targetCF, alpha)
 end)
 
 ------------------------------------------------------------
--- 👁️ ESP (Highlight فقط، بدون أسماء أو مسافات)
+-- 👁️ ESP (Highlight فقط — بدون أسماء أو مسافات)
 ------------------------------------------------------------
 local espObjects = {}
 
