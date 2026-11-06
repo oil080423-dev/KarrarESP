@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════
--- 🎯 نظام التصويب + ESP - نسخة عالية الجودة بدون لاق
+-- 🎯 نظام التصويب + ESP - النسخة النهائية
 -- ═══════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
@@ -12,26 +12,25 @@ local LocalPlayer = Players.LocalPlayer
 -- ⚙️ الإعدادات
 -- ═══════════════════════════════════════════
 local CONFIG = {
-    -- 🎯 التصويب
-    FOV_RADIUS = 180,              -- نطاق FOV (بكسل على الشاشة)
-    AIM_SMOOTHNESS = 0.40,         -- نعومة التصويب
-    AIM_DEAD_ZONE = 0.4,           -- منطقة ميتة (يمنع الاهتزاز)
-    TARGET_SMOOTHNESS = 0.45,      -- نعومة تتبع الهدف
-    STICKINESS = 0.90,             -- ثبات قوي على الهدف
-    MAX_DISTANCE = 600,            -- أقصى مسافة للتصويب
+    -- 🎯 التصويب (FOV صغير + ثبات قوي)
+    FOV_RADIUS = 110,              -- نطاق FOV (أصغر = أدق)
+    AIM_SMOOTHNESS = 0.28,         -- نعومة التصويب (أقل = أسلس)
+    AIM_DEAD_ZONE = 0.8,           -- منطقة ميتة (أكبر = ثبات أقوى)
+    TARGET_SMOOTHNESS = 0.30,      -- نعومة تتبع الهدف
+    STICKINESS = 0.95,             -- ثبات قوي على الهدف
+    MAX_DISTANCE = 600,
     HEAD_OFFSET = Vector3.new(0, 0, 0),
     AIM_KEY = Enum.KeyCode.Q,
     
-    -- 👁️ ESP (بسيط جداً)
+    -- 👁️ ESP (بسيط - أحمر فقط)
     ESP_KEY = Enum.KeyCode.E,
     ESP_MAX_DISTANCE = 800,
-    ESP_COLOR = Color3.fromRGB(255, 40, 40),  -- أحمر فقط
-    ESP_FILL_TRANSPARENCY = 0.75,              -- شفاف جداً (لا يزعج)
+    ESP_COLOR = Color3.fromRGB(255, 40, 40),
+    ESP_FILL_TRANSPARENCY = 0.75,
     ESP_OUTLINE_TRANSPARENCY = 0,
     
-    -- ⚡ الأداء (بدون لاق)
-    ESP_UPDATE_INTERVAL = 0.1,     -- تحديث ESP كل 0.1 ثانية فقط (وليس كل إطار)
-    UI_UPDATE_INTERVAL = 0.2,      -- تحديث المسافة كل 0.2 ثانية
+    -- ⚡ الأداء
+    ESP_UPDATE_INTERVAL = 0.1,
 }
 
 -- ═══════════════════════════════════════════
@@ -44,13 +43,11 @@ local espObjects = {}
 local smoothedTargetPosition = nil
 local lastTargetHead = nil
 local lastESPUpdate = 0
-local lastUIUpdate = 0
 
 -- ═══════════════════════════════════════════
--- 🛠️ دوال التصويب (محسّنة للأداء)
+-- 🛠️ دوال التصويب
 -- ═══════════════════════════════════════════
 
--- فحص خط الرؤية (خفيف)
 local function HasLineOfSight(targetHead)
     local origin = Camera.CFrame.Position
     local direction = targetHead.Position - origin
@@ -69,15 +66,6 @@ local function HasLineOfSight(targetHead)
         return true, distance
     end
     return false, distance
-end
-
--- المسافة على الشاشة (خفيف جداً)
-local function GetScreenDistance(targetHead)
-    local screenPos, onScreen = Camera:WorldToViewportPoint(targetHead.Position)
-    if not onScreen then return math.huge end
-    
-    local mousePos = UserInputService:GetMouseLocation()
-    return (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
 end
 
 local function IsEnemy(player)
@@ -100,13 +88,11 @@ local function IsValidTarget(player)
     return true, head
 end
 
--- 🔹 إيجاد أفضل هدف (محسّن - فلترة سريعة أولاً)
 local function FindBestTarget()
     local bestTarget = nil
     local bestScore = math.huge
     local mousePos = UserInputService:GetMouseLocation()
     
-    -- فحص الهدف الحالي أولاً (للثبات)
     if currentTarget then
         local valid, head = IsValidTarget(currentTarget)
         if valid then
@@ -126,24 +112,20 @@ local function FindBestTarget()
         end
     end
     
-    -- البحث عن أهداف جديدة
     for _, player in pairs(Players:GetPlayers()) do
         if player == currentTarget then continue end
         local valid, head = IsValidTarget(player)
         if not valid then continue end
         
-        -- فلترة سريعة: المسافة على الشاشة (بدون Raycast)
         local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
         if not onScreen then continue end
         
         local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
         if screenDist > CONFIG.FOV_RADIUS then continue end
         
-        -- فلترة المسافة في العالم (سريعة)
         local worldDist = (Camera.CFrame.Position - head.Position).Magnitude
         if worldDist > CONFIG.MAX_DISTANCE then continue end
         
-        -- فحص خط الرؤية (ثقيل - لكن فقط للأهداف المرشحة)
         local hasLOS = HasLineOfSight(head)
         if not hasLOS then continue end
         
@@ -159,7 +141,7 @@ local function FindBestTarget()
 end
 
 -- ═══════════════════════════════════════════
--- 👁️ ESP بسيط جداً (Highlight فقط - بدون أسماء أو أيقونات)
+-- 👁️ ESP (Highlight فقط - أحمر)
 -- ═══════════════════════════════════════════
 
 local function CreateESP(player)
@@ -200,7 +182,6 @@ local function SetESPState(enabled)
     end
 end
 
--- تحديث ESP (مُحسّن - كل 0.1 ثانية فقط)
 local function UpdateESP(now)
     if now - lastESPUpdate < CONFIG.ESP_UPDATE_INTERVAL then return end
     lastESPUpdate = now
@@ -223,7 +204,7 @@ local function UpdateESP(now)
 end
 
 -- ═══════════════════════════════════════════
--- 🖥️ دائرة FOV على الشاشة
+-- 🖥️ واجهة المستخدم
 -- ═══════════════════════════════════════════
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 
@@ -234,46 +215,35 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 
--- 🔵 دائرة FOV (تظهر فقط عند التصويب)
+-- 🔴 دائرة FOV (بيضاء رفيعة)
 local fovCircle = Instance.new("Frame")
 fovCircle.Name = "FOVCircle"
 fovCircle.Size = UDim2.new(0, CONFIG.FOV_RADIUS * 2, 0, CONFIG.FOV_RADIUS * 2)
 fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
-fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)  -- منتصف الشاشة
+fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
 fovCircle.BackgroundTransparency = 1
 fovCircle.BorderSizePixel = 0
 fovCircle.Visible = false
 fovCircle.Parent = screenGui
 
 local fovCorner = Instance.new("UICorner")
-fovCorner.CornerRadius = UDim.new(1, 0)  -- دائرة كاملة
+fovCorner.CornerRadius = UDim.new(1, 0)
 fovCorner.Parent = fovCircle
 
 local fovStroke = Instance.new("UIStroke")
 fovStroke.Color = Color3.fromRGB(255, 255, 255)
-fovStroke.Thickness = 2
-fovStroke.Transparency = 0.6
+fovStroke.Thickness = 1.5
+fovStroke.Transparency = 0.75
 fovStroke.Parent = fovCircle
 
--- 🖱️ تحديث موضع دائرة FOV (تتبع الفأرة)
-RunService.RenderStepped:Connect(function()
-    if isAiming then
-        local mousePos = UserInputService:GetMouseLocation()
-        fovCircle.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
-        fovCircle.Visible = true
-    else
-        fovCircle.Visible = false
-    end
-end)
-
 -- ═══════════════════════════════════════════
--- 🎮 أزرار التحكم
+-- 🔴 زر التصويب (أحمر)
 -- ═══════════════════════════════════════════
 local aimButton = Instance.new("TextButton")
 aimButton.Name = "AimButton"
 aimButton.Size = UDim2.new(0, 110, 0, 110)
 aimButton.Position = UDim2.new(1, -130, 1, -280)
-aimButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)      -- 🔴 أحمر
 aimButton.BackgroundTransparency = 0.2
 aimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 aimButton.Text = "🎯\nالتصويب\n[Q]"
@@ -292,11 +262,14 @@ aimStroke.Thickness = 2
 aimStroke.Transparency = 0.5
 aimStroke.Parent = aimButton
 
+-- ═══════════════════════════════════════════
+-- 🔴 زر ESP (أحمر)
+-- ═══════════════════════════════════════════
 local espButton = Instance.new("TextButton")
 espButton.Name = "ESPButton"
 espButton.Size = UDim2.new(0, 110, 0, 110)
 espButton.Position = UDim2.new(1, -130, 1, -160)
-espButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)      -- 🔴 أحمر
 espButton.BackgroundTransparency = 0.2
 espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 espButton.Text = "👁️\nESP\n[E]"
@@ -320,12 +293,12 @@ espStroke.Parent = espButton
 -- ═══════════════════════════════════════════
 local function UpdateAimButton()
     if isAiming then
-        aimButton.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+        aimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)    -- 🟢 أخضر عند التفعيل
         aimButton.Text = "🎯\nمفعّل ✅\n[Q]"
         aimStroke.Color = Color3.fromRGB(0, 255, 0)
         aimStroke.Transparency = 0
     else
-        aimButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)   -- 🔴 أحمر عند الإطفاء
         aimButton.Text = "🎯\nمغلق\n[Q]"
         aimStroke.Color = Color3.fromRGB(255, 255, 255)
         aimStroke.Transparency = 0.5
@@ -334,12 +307,12 @@ end
 
 local function UpdateESPButton()
     if isESPEnabled then
-        espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+        espButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)    -- 🟢 أخضر عند التفعيل
         espButton.Text = "👁️\nمفعّل ✅\n[E]"
-        espStroke.Color = Color3.fromRGB(255, 50, 50)
+        espStroke.Color = Color3.fromRGB(0, 255, 0)
         espStroke.Transparency = 0
     else
-        espButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+        espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)   -- 🔴 أحمر عند الإطفاء
         espButton.Text = "👁️\nمغلق\n[E]"
         espStroke.Color = Color3.fromRGB(255, 255, 255)
         espStroke.Transparency = 0.5
@@ -394,14 +367,21 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ═══════════════════════════════════════════
--- 🔄 الحلقة الرئيسية (محسّنة للأداء)
+-- 🔄 الحلقة الرئيسية
 -- ═══════════════════════════════════════════
 RunService.RenderStepped:Connect(function(deltaTime)
     local now = tick()
     
-    -- ─────────────────────────────────────
-    -- 🎯 التصويب الناعم (كل إطار - ضروري للنعومة)
-    -- ─────────────────────────────────────
+    -- 🖱️ دائرة FOV تتبع الفأرة
+    if isAiming then
+        local mousePos = UserInputService:GetMouseLocation()
+        fovCircle.Position = UDim2.new(0, mousePos.X, 0, mousePos.Y)
+        fovCircle.Visible = true
+    else
+        fovCircle.Visible = false
+    end
+    
+    -- 🎯 التصويب
     if isAiming and LocalPlayer.Character then
         local target = FindBestTarget()
         
@@ -425,15 +405,15 @@ RunService.RenderStepped:Connect(function(deltaTime)
                 if distanceToTarget > CONFIG.AIM_DEAD_ZONE then
                     local goalCFrame = CFrame.lookAt(cameraPos, smoothedTargetPosition)
                     
-                    local distanceRatio = math.clamp(distanceToTarget / 50, 0, 1)
-                    local adaptiveSmoothness = math.max(CONFIG.AIM_SMOOTHNESS * distanceRatio, 0.05)
+                    local distanceRatio = math.clamp(distanceToTarget / 80, 0, 1)
+                    local adaptiveSmoothness = math.max(CONFIG.AIM_SMOOTHNESS * distanceRatio, 0.04)
                     local smoothFactor = 1 - math.pow(1 - adaptiveSmoothness, deltaTime * 60)
                     
                     local newCFrame = Camera.CFrame:Lerp(goalCFrame, smoothFactor)
                     
                     local currentLook = Camera.CFrame.LookVector
                     local newLook = newCFrame.LookVector
-                    local blendedLook = currentLook:Lerp(newLook, 0.7).Unit
+                    local blendedLook = currentLook:Lerp(newLook, 0.55).Unit
                     
                     Camera.CFrame = CFrame.lookAt(cameraPos, cameraPos + blendedLook)
                 end
@@ -444,9 +424,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
         end
     end
     
-    -- ─────────────────────────────────────
-    -- 👁️ ESP (كل 0.1 ثانية فقط - لا يسبب لاق)
-    -- ─────────────────────────────────────
+    -- 👁️ ESP
     if isESPEnabled then
         UpdateESP(now)
     end
