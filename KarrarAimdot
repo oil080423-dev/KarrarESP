@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════
--- 🎯 نظام التصويب + ESP - FOV ثابت + Crosshair
+-- 🎯 نظام التصويب + ESP - أيقونة واحدة + قائمة متحركة
 -- ═══════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
@@ -12,12 +12,12 @@ local LocalPlayer = Players.LocalPlayer
 -- ⚙️ الإعدادات
 -- ═══════════════════════════════════════════
 local CONFIG = {
-    -- 🎯 التصويب
+    -- 🎯 التصويب (ثبات قوي جداً + سلاسة)
     FOV_RADIUS = 110,
-    AIM_SMOOTHNESS = 0.28,
-    AIM_DEAD_ZONE = 0.8,
-    TARGET_SMOOTHNESS = 0.30,
-    STICKINESS = 0.95,
+    AIM_SMOOTHNESS = 0.32,         -- ⬅️ نعومة أعلى (كان 0.28)
+    AIM_DEAD_ZONE = 1.0,           -- ⬅️ منطقة ميتة أكبر (ثبات)
+    TARGET_SMOOTHNESS = 0.22,      -- ⬅️ تتبع أسلس
+    STICKINESS = 0.97,             -- ⬅️ ثبات شبه كامل
     MAX_DISTANCE = 600,
     HEAD_OFFSET = Vector3.new(0, 0, 0),
     AIM_KEY = Enum.KeyCode.Q,
@@ -33,10 +33,14 @@ local CONFIG = {
     ESP_UPDATE_INTERVAL = 0.1,
     
     -- 🎯 Crosshair
-    CROSSHAIR_COLOR = Color3.fromRGB(0, 255, 0),  -- أخضر
-    CROSSHAIR_SIZE = 20,        -- طول كل خط
-    CROSSHAIR_THICKNESS = 2,    -- سمك الخط
-    CROSSHAIR_GAP = 4,          -- فراغ في المنتصف
+    CROSSHAIR_COLOR = Color3.fromRGB(0, 255, 0),
+    CROSSHAIR_SIZE = 20,
+    CROSSHAIR_THICKNESS = 2,
+    CROSSHAIR_GAP = 4,
+    
+    -- 🎨 الألوان
+    ICON_COLOR = Color3.fromRGB(180, 0, 0),      -- أحمر
+    ICON_ACTIVE_COLOR = Color3.fromRGB(0, 200, 0), -- أخضر
 }
 
 -- ═══════════════════════════════════════════
@@ -45,6 +49,7 @@ local CONFIG = {
 local currentTarget = nil
 local isAiming = false
 local isESPEnabled = false
+local isMenuOpen = false
 local espObjects = {}
 local smoothedTargetPosition = nil
 local lastTargetHead = nil
@@ -62,7 +67,6 @@ local function HasLineOfSight(targetHead)
     local origin = Camera.CFrame.Position
     local direction = targetHead.Position - origin
     local distance = direction.Magnitude
-    
     if distance > CONFIG.MAX_DISTANCE then return false, distance end
     
     local params = RaycastParams.new()
@@ -70,7 +74,6 @@ local function HasLineOfSight(targetHead)
     params.FilterDescendantsInstances = {LocalPlayer.Character}
     
     local result = workspace:Raycast(origin, direction, params)
-    
     if not result then return true, distance end
     if result.Instance and result.Instance:IsDescendantOf(targetHead.Parent) then
         return true, distance
@@ -98,13 +101,11 @@ local function IsValidTarget(player)
     return true, head
 end
 
--- 🎯 إيجاد أفضل هدف (يعتمد على منتصف الشاشة)
 local function FindBestTarget()
     local bestTarget = nil
     local bestScore = math.huge
     local screenCenter = GetScreenCenter()
     
-    -- فحص الهدف الحالي أولاً (للثبات)
     if currentTarget then
         local valid, head = IsValidTarget(currentTarget)
         if valid then
@@ -124,7 +125,6 @@ local function FindBestTarget()
         end
     end
     
-    -- البحث عن أهداف جديدة
     for _, player in pairs(Players:GetPlayers()) do
         if player == currentTarget then continue end
         local valid, head = IsValidTarget(player)
@@ -133,7 +133,6 @@ local function FindBestTarget()
         local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
         if not onScreen then continue end
         
-        -- 🔹 المسافة من منتصف الشاشة (وليس الفأرة)
         local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
         if screenDist > CONFIG.FOV_RADIUS then continue end
         
@@ -155,7 +154,7 @@ local function FindBestTarget()
 end
 
 -- ═══════════════════════════════════════════
--- 👁️ ESP (Highlight فقط)
+-- 👁️ ESP
 -- ═══════════════════════════════════════════
 
 local function CreateESP(player)
@@ -205,12 +204,10 @@ local function UpdateESP(now)
             RemoveESP(player)
             continue
         end
-        
         local myChar = LocalPlayer.Character
         if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then continue end
         
         local distance = (myChar.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude
-        
         if esp.Highlight then
             esp.Highlight.Enabled = distance <= CONFIG.ESP_MAX_DISTANCE
         end
@@ -236,7 +233,7 @@ local fovCircle = Instance.new("Frame")
 fovCircle.Name = "FOVCircle"
 fovCircle.Size = UDim2.new(0, CONFIG.FOV_RADIUS * 2, 0, CONFIG.FOV_RADIUS * 2)
 fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
-fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)  -- 🎯 منتصف الشاشة
+fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
 fovCircle.BackgroundTransparency = 1
 fovCircle.BorderSizePixel = 0
 fovCircle.Visible = false
@@ -253,145 +250,167 @@ fovStroke.Transparency = 0.75
 fovStroke.Parent = fovCircle
 
 -- ═══════════════════════════════════════════
--- ➕ Crosshair (علامة زائد)
+-- ➕ Crosshair
 -- ═══════════════════════════════════════════
 local crosshairContainer = Instance.new("Frame")
 crosshairContainer.Name = "Crosshair"
 crosshairContainer.Size = UDim2.new(0, 0, 0, 0)
 crosshairContainer.AnchorPoint = Vector2.new(0.5, 0.5)
-crosshairContainer.Position = UDim2.new(0.5, 0, 0.5, 0)  -- منتصف الشاشة
+crosshairContainer.Position = UDim2.new(0.5, 0, 0.5, 0)
 crosshairContainer.BackgroundTransparency = 1
 crosshairContainer.BorderSizePixel = 0
 crosshairContainer.Visible = false
 crosshairContainer.Parent = screenGui
 
--- الخط الأفقي (يمين)
-local lineRight = Instance.new("Frame")
-lineRight.Name = "LineRight"
-lineRight.Size = UDim2.new(0, CONFIG.CROSSHAIR_SIZE, 0, CONFIG.CROSSHAIR_THICKNESS)
-lineRight.Position = UDim2.new(0, CONFIG.CROSSHAIR_GAP, 0, -CONFIG.CROSSHAIR_THICKNESS / 2)
-lineRight.AnchorPoint = Vector2.new(0, 0.5)
-lineRight.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
-lineRight.BorderSizePixel = 0
-lineRight.Parent = crosshairContainer
+local function CreateCrosshairLine(name, size, position, anchor)
+    local line = Instance.new("Frame")
+    line.Name = name
+    line.Size = size
+    line.Position = position
+    line.AnchorPoint = anchor
+    line.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
+    line.BorderSizePixel = 0
+    line.Parent = crosshairContainer
+    return line
+end
 
--- الخط الأفقي (يسار)
-local lineLeft = Instance.new("Frame")
-lineLeft.Name = "LineLeft"
-lineLeft.Size = UDim2.new(0, CONFIG.CROSSHAIR_SIZE, 0, CONFIG.CROSSHAIR_THICKNESS)
-lineLeft.Position = UDim2.new(0, -CONFIG.CROSSHAIR_GAP, 0, -CONFIG.CROSSHAIR_THICKNESS / 2)
-lineLeft.AnchorPoint = Vector2.new(1, 0.5)
-lineLeft.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
-lineLeft.BorderSizePixel = 0
-lineLeft.Parent = crosshairContainer
+CreateCrosshairLine("LineRight",
+    UDim2.new(0, CONFIG.CROSSHAIR_SIZE, 0, CONFIG.CROSSHAIR_THICKNESS),
+    UDim2.new(0, CONFIG.CROSSHAIR_GAP, 0, -CONFIG.CROSSHAIR_THICKNESS / 2),
+    Vector2.new(0, 0.5))
 
--- الخط العمودي (أعلى)
-local lineTop = Instance.new("Frame")
-lineTop.Name = "LineTop"
-lineTop.Size = UDim2.new(0, CONFIG.CROSSHAIR_THICKNESS, 0, CONFIG.CROSSHAIR_SIZE)
-lineTop.Position = UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, -CONFIG.CROSSHAIR_GAP)
-lineTop.AnchorPoint = Vector2.new(0.5, 1)
-lineTop.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
-lineTop.BorderSizePixel = 0
-lineTop.Parent = crosshairContainer
+CreateCrosshairLine("LineLeft",
+    UDim2.new(0, CONFIG.CROSSHAIR_SIZE, 0, CONFIG.CROSSHAIR_THICKNESS),
+    UDim2.new(0, -CONFIG.CROSSHAIR_GAP, 0, -CONFIG.CROSSHAIR_THICKNESS / 2),
+    Vector2.new(1, 0.5))
 
--- الخط العمودي (أسفل)
-local lineBottom = Instance.new("Frame")
-lineBottom.Name = "LineBottom"
-lineBottom.Size = UDim2.new(0, CONFIG.CROSSHAIR_THICKNESS, 0, CONFIG.CROSSHAIR_SIZE)
-lineBottom.Position = UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, CONFIG.CROSSHAIR_GAP)
-lineBottom.AnchorPoint = Vector2.new(0.5, 0)
-lineBottom.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
-lineBottom.BorderSizePixel = 0
-lineBottom.Parent = crosshairContainer
+CreateCrosshairLine("LineTop",
+    UDim2.new(0, CONFIG.CROSSHAIR_THICKNESS, 0, CONFIG.CROSSHAIR_SIZE),
+    UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, -CONFIG.CROSSHAIR_GAP),
+    Vector2.new(0.5, 1))
 
--- نقطة مركزية (اختياري - صغيرة)
-local centerDot = Instance.new("Frame")
-centerDot.Name = "CenterDot"
-centerDot.Size = UDim2.new(0, 2, 0, 2)
-centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
-centerDot.Position = UDim2.new(0, 0, 0, 0)
-centerDot.BackgroundColor3 = CONFIG.CROSSHAIR_COLOR
-centerDot.BorderSizePixel = 0
-centerDot.Parent = crosshairContainer
+CreateCrosshairLine("LineBottom",
+    UDim2.new(0, CONFIG.CROSSHAIR_THICKNESS, 0, CONFIG.CROSSHAIR_SIZE),
+    UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, CONFIG.CROSSHAIR_GAP),
+    Vector2.new(0.5, 0))
 
 -- ═══════════════════════════════════════════
--- 🔴 الأزرار
+-- 🎛️ الأيقونة الواحدة (Draggable)
 -- ═══════════════════════════════════════════
-local aimButton = Instance.new("TextButton")
-aimButton.Name = "AimButton"
-aimButton.Size = UDim2.new(0, 110, 0, 110)
-aimButton.Position = UDim2.new(1, -130, 1, -280)
-aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-aimButton.BackgroundTransparency = 0.2
-aimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-aimButton.Text = "🎯\nالتصويب\n[Q]"
-aimButton.TextScaled = true
-aimButton.Font = Enum.Font.GothamBold
-aimButton.BorderSizePixel = 0
-aimButton.Parent = screenGui
+local mainIcon = Instance.new("TextButton")
+mainIcon.Name = "MainIcon"
+mainIcon.Size = UDim2.new(0, 60, 0, 60)
+mainIcon.Position = UDim2.new(1, -80, 0.5, -30)  -- يمين الشاشة
+mainIcon.BackgroundColor3 = CONFIG.ICON_COLOR
+mainIcon.BackgroundTransparency = 0.1
+mainIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+mainIcon.Text = "⚙️"
+mainIcon.TextScaled = true
+mainIcon.Font = Enum.Font.GothamBold
+mainIcon.BorderSizePixel = 0
+mainIcon.AutoButtonColor = false
+mainIcon.Parent = screenGui
 
-local aimCorner = Instance.new("UICorner")
-aimCorner.CornerRadius = UDim.new(0, 18)
-aimCorner.Parent = aimButton
+local iconCorner = Instance.new("UICorner")
+iconCorner.CornerRadius = UDim.new(1, 0)
+iconCorner.Parent = mainIcon
 
-local aimStroke = Instance.new("UIStroke")
-aimStroke.Color = Color3.fromRGB(255, 255, 255)
-aimStroke.Thickness = 2
-aimStroke.Transparency = 0.5
-aimStroke.Parent = aimButton
+local iconStroke = Instance.new("UIStroke")
+iconStroke.Color = Color3.fromRGB(255, 255, 255)
+iconStroke.Thickness = 2
+iconStroke.Transparency = 0.3
+iconStroke.Parent = mainIcon
 
-local espButton = Instance.new("TextButton")
-espButton.Name = "ESPButton"
-espButton.Size = UDim2.new(0, 110, 0, 110)
-espButton.Position = UDim2.new(1, -130, 1, -160)
-espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-espButton.BackgroundTransparency = 0.2
-espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-espButton.Text = "👁️\nESP\n[E]"
-espButton.TextScaled = true
-espButton.Font = Enum.Font.GothamBold
-espButton.BorderSizePixel = 0
-espButton.Parent = screenGui
+-- ═══════════════════════════════════════════
+-- 📋 القائمة المنسدلة
+-- ═══════════════════════════════════════════
+local menuFrame = Instance.new("Frame")
+menuFrame.Name = "MenuFrame"
+menuFrame.Size = UDim2.new(0, 180, 0, 160)
+menuFrame.Position = UDim2.new(1, -260, 0.5, -80)  -- يسار الأيقونة
+menuFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+menuFrame.BackgroundTransparency = 0.1
+menuFrame.BorderSizePixel = 0
+menuFrame.Visible = false
+menuFrame.Parent = screenGui
 
-local espCorner = Instance.new("UICorner")
-espCorner.CornerRadius = UDim.new(0, 18)
-espCorner.Parent = espButton
+local menuCorner = Instance.new("UICorner")
+menuCorner.CornerRadius = UDim.new(0, 12)
+menuCorner.Parent = menuFrame
 
-local espStroke = Instance.new("UIStroke")
-espStroke.Color = Color3.fromRGB(255, 255, 255)
-espStroke.Thickness = 2
-espStroke.Transparency = 0.5
-espStroke.Parent = espButton
+local menuStroke = Instance.new("UIStroke")
+menuStroke.Color = Color3.fromRGB(180, 0, 0)
+menuStroke.Thickness = 2
+menuStroke.Transparency = 0.3
+menuStroke.Parent = menuFrame
+
+-- عنوان القائمة
+local menuTitle = Instance.new("TextLabel")
+menuTitle.Size = UDim2.new(1, 0, 0, 28)
+menuTitle.Position = UDim2.new(0, 0, 0, 5)
+menuTitle.BackgroundTransparency = 1
+menuTitle.Text = "⚙️ الإعدادات"
+menuTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+menuTitle.TextScaled = true
+menuTitle.Font = Enum.Font.GothamBold
+menuTitle.Parent = menuFrame
+
+-- زر التصويب
+local aimToggle = Instance.new("TextButton")
+aimToggle.Name = "AimToggle"
+aimToggle.Size = UDim2.new(0.9, 0, 0, 45)
+aimToggle.Position = UDim2.new(0.05, 0, 0, 40)
+aimToggle.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+aimToggle.BackgroundTransparency = 0.1
+aimToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimToggle.Text = "🎯 التصويب: مغلق"
+aimToggle.TextScaled = true
+aimToggle.Font = Enum.Font.GothamBold
+aimToggle.BorderSizePixel = 0
+aimToggle.Parent = menuFrame
+
+local aimToggleCorner = Instance.new("UICorner")
+aimToggleCorner.CornerRadius = UDim.new(0, 8)
+aimToggleCorner.Parent = aimToggle
+
+-- زر ESP
+local espToggle = Instance.new("TextButton")
+espToggle.Name = "ESPToggle"
+espToggle.Size = UDim2.new(0.9, 0, 0, 45)
+espToggle.Position = UDim2.new(0.05, 0, 0, 95)
+espToggle.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+espToggle.BackgroundTransparency = 0.1
+espToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+espToggle.Text = "👁️ ESP: مغلق"
+espToggle.TextScaled = true
+espToggle.Font = Enum.Font.GothamBold
+espToggle.BorderSizePixel = 0
+espToggle.Parent = menuFrame
+
+local espToggleCorner = Instance.new("UICorner")
+espToggleCorner.CornerRadius = UDim.new(0, 8)
+espToggleCorner.Parent = espToggle
 
 -- ═══════════════════════════════════════════
 -- 🔄 تحديث الأزرار
 -- ═══════════════════════════════════════════
-local function UpdateAimButton()
+local function UpdateAimVisual()
     if isAiming then
-        aimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        aimButton.Text = "🎯\nمفعّل ✅\n[Q]"
-        aimStroke.Color = Color3.fromRGB(0, 255, 0)
-        aimStroke.Transparency = 0
+        aimToggle.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
+        aimToggle.Text = "🎯 التصويب: مفعّل ✅"
     else
-        aimButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-        aimButton.Text = "🎯\nمغلق\n[Q]"
-        aimStroke.Color = Color3.fromRGB(255, 255, 255)
-        aimStroke.Transparency = 0.5
+        aimToggle.BackgroundColor3 = CONFIG.ICON_COLOR
+        aimToggle.Text = "🎯 التصويب: مغلق"
     end
 end
 
-local function UpdateESPButton()
+local function UpdateESPVisual()
     if isESPEnabled then
-        espButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        espButton.Text = "👁️\nمفعّل ✅\n[E]"
-        espStroke.Color = Color3.fromRGB(0, 255, 0)
-        espStroke.Transparency = 0
+        espToggle.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
+        espToggle.Text = "👁️ ESP: مفعّل ✅"
     else
-        espButton.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
-        espButton.Text = "👁️\nمغلق\n[E]"
-        espStroke.Color = Color3.fromRGB(255, 255, 255)
-        espStroke.Transparency = 0.5
+        espToggle.BackgroundColor3 = CONFIG.ICON_COLOR
+        espToggle.Text = "👁️ ESP: مغلق"
     end
 end
 
@@ -405,26 +424,123 @@ local function ToggleAim()
         smoothedTargetPosition = nil
         lastTargetHead = nil
     end
-    UpdateAimButton()
+    UpdateAimVisual()
 end
 
 local function ToggleESP()
     isESPEnabled = not isESPEnabled
     SetESPState(isESPEnabled)
-    UpdateESPButton()
+    UpdateESPVisual()
+end
+
+local function ToggleMenu()
+    isMenuOpen = not isMenuOpen
+    menuFrame.Visible = isMenuOpen
+    
+    -- تغيير لون الأيقونة عند الفتح
+    if isMenuOpen then
+        mainIcon.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
+        mainIcon.Text = "✖️"
+    else
+        mainIcon.BackgroundColor3 = CONFIG.ICON_COLOR
+        mainIcon.Text = "⚙️"
+    end
 end
 
 -- ═══════════════════════════════════════════
--- ⌨️ ربط الكيبورد
+-- 🖱️ نظام السحب (Draggable) - للأيقونة والقائمة
 -- ═══════════════════════════════════════════
+local function MakeDraggable(frame, targetFrame)
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+    
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+           input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = targetFrame.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or 
+                          input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            targetFrame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+
+-- جعل الأيقونة قابلة للسحب
+MakeDraggable(mainIcon, mainIcon)
+
+-- جعل القائمة قابلة للسحب (من العنوان)
+local titleDragArea = Instance.new("TextButton")
+titleDragArea.Size = UDim2.new(1, 0, 0, 35)
+titleDragArea.Position = UDim2.new(0, 0, 0, 0)
+titleDragArea.BackgroundTransparency = 1
+titleDragArea.Text = ""
+titleDragArea.Parent = menuFrame
+
+MakeDraggable(titleDragArea, menuFrame)
+
+-- ═══════════════════════════════════════════
+-- 🎯 ربط الأحداث
+-- ═══════════════════════════════════════════
+
+-- فتح/إغلاق القائمة عند الضغط على الأيقونة (بدون سحب)
+local iconClickStart = nil
+local iconDragged = false
+
+mainIcon.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        iconClickStart = tick()
+        iconDragged = false
+    end
+end)
+
+mainIcon.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        if iconClickStart and (tick() - iconClickStart) > 0.1 then
+            iconDragged = true
+        end
+    end
+end)
+
+mainIcon.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or 
+       input.UserInputType == Enum.UserInputType.Touch then
+        if not iconDragged and iconClickStart and (tick() - iconClickStart) < 0.3 then
+            ToggleMenu()
+        end
+        iconClickStart = nil
+        iconDragged = false
+    end
+end)
+
+-- أزرار القائمة
+aimToggle.MouseButton1Click:Connect(ToggleAim)
+espToggle.MouseButton1Click:Connect(ToggleESP)
+
+-- ⌨️ اختصارات الكيبورد
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == CONFIG.AIM_KEY then ToggleAim() end
     if input.KeyCode == CONFIG.ESP_KEY then ToggleESP() end
 end)
-
-aimButton.MouseButton1Click:Connect(ToggleAim)
-espButton.MouseButton1Click:Connect(ToggleESP)
 
 -- ═══════════════════════════════════════════
 -- 🔄 إدارة اللاعبين
@@ -443,12 +559,11 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ═══════════════════════════════════════════
--- 🔄 الحلقة الرئيسية
+-- 🔄 الحلقة الرئيسية (تصويب أسلس + ثبات أقوى)
 -- ═══════════════════════════════════════════
 RunService.RenderStepped:Connect(function(deltaTime)
     local now = tick()
     
-    -- 🎯 إظهار/إخفاء FOV + Crosshair
     if isAiming then
         fovCircle.Visible = true
         crosshairContainer.Visible = true
@@ -457,7 +572,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
         crosshairContainer.Visible = false
     end
     
-    -- 🎯 التصويب
     if isAiming and LocalPlayer.Character then
         local target = FindBestTarget()
         
@@ -470,6 +584,7 @@ RunService.RenderStepped:Connect(function(deltaTime)
                     smoothedTargetPosition = targetHead.Position + CONFIG.HEAD_OFFSET
                 end
                 
+                -- 🔹 1. تنعيم موقع الهدف (أسلس)
                 local rawTargetPos = targetHead.Position + CONFIG.HEAD_OFFSET
                 local targetSmoothFactor = 1 - math.pow(1 - CONFIG.TARGET_SMOOTHNESS, deltaTime * 60)
                 smoothedTargetPosition = smoothedTargetPosition:Lerp(rawTargetPos, targetSmoothFactor)
@@ -478,18 +593,21 @@ RunService.RenderStepped:Connect(function(deltaTime)
                 local direction = smoothedTargetPosition - cameraPos
                 local distanceToTarget = direction.Magnitude
                 
+                -- 🔹 2. Dead Zone (ثبات قوي عند الوصول)
                 if distanceToTarget > CONFIG.AIM_DEAD_ZONE then
                     local goalCFrame = CFrame.lookAt(cameraPos, smoothedTargetPosition)
                     
-                    local distanceRatio = math.clamp(distanceToTarget / 80, 0, 1)
-                    local adaptiveSmoothness = math.max(CONFIG.AIM_SMOOTHNESS * distanceRatio, 0.04)
+                    -- 🔹 3. نعومة متغيرة (أسلس عند القرب)
+                    local distanceRatio = math.clamp(distanceToTarget / 100, 0, 1)
+                    local adaptiveSmoothness = math.max(CONFIG.AIM_SMOOTHNESS * distanceRatio, 0.03)
                     local smoothFactor = 1 - math.pow(1 - adaptiveSmoothness, deltaTime * 60)
                     
                     local newCFrame = Camera.CFrame:Lerp(goalCFrame, smoothFactor)
                     
+                    -- 🔹 4. مزج الاتجاه (أسلس)
                     local currentLook = Camera.CFrame.LookVector
                     local newLook = newCFrame.LookVector
-                    local blendedLook = currentLook:Lerp(newLook, 0.55).Unit
+                    local blendedLook = currentLook:Lerp(newLook, 0.5).Unit
                     
                     Camera.CFrame = CFrame.lookAt(cameraPos, cameraPos + blendedLook)
                 end
@@ -500,7 +618,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
         end
     end
     
-    -- 👁️ ESP
     if isESPEnabled then
         UpdateESP(now)
     end
@@ -509,5 +626,5 @@ end)
 -- ═══════════════════════════════════════════
 -- ✅ إعداد أولي
 -- ═══════════════════════════════════════════
-UpdateAimButton()
-UpdateESPButton()
+UpdateAimVisual()
+UpdateESPVisual()
