@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════
--- 🎯 نظام التصويب + ESP - تتبع 90% + مدى بعيد + فلترة الموتى
+-- 🎯 نظام التصويب + ESP - AIM_SMOOTHNESS 0.70
 -- ═══════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
@@ -12,24 +12,24 @@ local LocalPlayer = Players.LocalPlayer
 -- ⚙️ الإعدادات
 -- ═══════════════════════════════════════════
 local CONFIG = {
-    -- 🎯 التصويب (تتبع 90% + مدى بعيد)
-    FOV_RADIUS = 180,              -- ⬅️ دائرة أكبر (كان 110)
-    AIM_SMOOTHNESS = 0.45,         -- ⬅️ أسرع (كان 0.32)
-    AIM_DEAD_ZONE = 0.5,           -- ⬅️ أصغر (كان 0.8)
-    TARGET_SMOOTHNESS = 0.90,      -- ⬅️ تتبع 90%
+    -- 🎯 التصويب
+    FOV_RADIUS = 180,
+    AIM_SMOOTHNESS = 0.70,         -- ⬅️ كاميرا سريعة
+    AIM_DEAD_ZONE = 0.3,
+    TARGET_SMOOTHNESS = 0.80,
     STICKINESS = 0.97,
-    MAX_DISTANCE = 1500,           -- ⬅️ مدى بعيد (كان 600)
+    MAX_DISTANCE = 1500,
     HEAD_OFFSET = Vector3.new(0, 0, 0),
     AIM_KEY = Enum.KeyCode.Q,
     
     -- 🆕 إعدادات التتبع
-    PREDICTION_STRENGTH = 0.90,    -- ⬅️ توقع 90%
+    PREDICTION_STRENGTH = 0.80,
     VERTICAL_LOCK = true,
-    TRACKING_POWER = 0.90,         -- ⬅️ قوة 90%
+    TRACKING_POWER = 0.80,
     
     -- 👁️ ESP
     ESP_KEY = Enum.KeyCode.E,
-    ESP_MAX_DISTANCE = 2000,       -- ⬅️ ESP بعيد أيضاً
+    ESP_MAX_DISTANCE = 2000,
     ESP_COLOR = Color3.fromRGB(255, 40, 40),
     ESP_FILL_TRANSPARENCY = 0.75,
     ESP_OUTLINE_TRANSPARENCY = 0,
@@ -44,6 +44,9 @@ local CONFIG = {
     -- 🎨 الألوان
     ICON_COLOR = Color3.fromRGB(180, 0, 0),
     ICON_ACTIVE_COLOR = Color3.fromRGB(0, 200, 0),
+    
+    -- 🆕 Debug
+    DEBUG = false,
 }
 
 -- ═══════════════════════════════════════════
@@ -59,6 +62,7 @@ local lastTargetHead = nil
 local lastESPUpdate = 0
 local targetVelocity = Vector3.zero
 local lastRawTargetPos = nil
+local lastDebugPrint = 0
 
 -- ═══════════════════════════════════════════
 -- 🛠️ دوال التصويب
@@ -95,38 +99,31 @@ local function IsEnemy(player)
     return true
 end
 
--- 🆕 فلترة الموتى (محسّنة)
 local function IsValidTarget(player)
     if not IsEnemy(player) then return false end
     
     local char = player.Character
     if not char then return false end
-    if not char.Parent then return false end  -- الشخصية محذوفة
+    if not char.Parent then return false end
     
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if not humanoid then return false end
     
-    -- ❌ فحص الصحة (ميت؟)
     if humanoid.Health <= 0 then return false end
     
-    -- ❌ فحص حالة Humanoid (Dead / Dying)
     local state = humanoid:GetState()
     if state == Enum.HumanoidStateType.Dead 
        or state == Enum.HumanoidStateType.Dying 
        or state == Enum.HumanoidStateType.FallingDown then
         return false end
     
-    -- ❌ فحص هل الرأس موجود ومرئي
     local head = char:FindFirstChild("Head")
     if not head then return false end
     
-    -- ❌ فحص شفافية الرأس (مخفي = ميت غالباً)
     if head.Transparency >= 0.9 then return false end
     
-    -- ❌ فحص HumanoidRootPart موجود
     if not char:FindFirstChild("HumanoidRootPart") then return false end
     
-    -- ❌ فحص هل الشخصية "منبثقة" (Ragdoll ميت)
     if humanoid.PlatformStand then return false end
     
     return true, head
@@ -226,7 +223,6 @@ local function SetESPState(enabled)
     end
 end
 
--- 🆕 ESP يتجاهل الموتى
 local function UpdateESP(now)
     if now - lastESPUpdate < CONFIG.ESP_UPDATE_INTERVAL then return end
     lastESPUpdate = now
@@ -240,7 +236,6 @@ local function UpdateESP(now)
         local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
         local myChar = LocalPlayer.Character
         
-        -- ❌ إخفاء ESP للموتى
         if not humanoid or humanoid.Health <= 0 or not myChar or not myChar:FindFirstChild("HumanoidRootPart") then
             if esp.Highlight then esp.Highlight.Enabled = false end
             continue
@@ -570,7 +565,7 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ═══════════════════════════════════════════
--- 🔄 الحلقة الرئيسية (تتبع 90% + مدى بعيد)
+-- 🔄 الحلقة الرئيسية (AIM_SMOOTHNESS 0.70)
 -- ═══════════════════════════════════════════
 RunService.RenderStepped:Connect(function(deltaTime)
     local now = tick()
@@ -585,6 +580,15 @@ RunService.RenderStepped:Connect(function(deltaTime)
     
     if isAiming and LocalPlayer.Character then
         local target = FindBestTarget()
+        
+        if CONFIG.DEBUG and now - lastDebugPrint > 1 then
+            lastDebugPrint = now
+            if target then
+                print("🎯 الهدف:", target.Name)
+            else
+                print("🔍 لا يوجد هدف في النطاق")
+            end
+        end
         
         if target then
             local targetHead = target.Character and target.Character:FindFirstChild("Head")
@@ -606,10 +610,10 @@ RunService.RenderStepped:Connect(function(deltaTime)
                 end
                 lastRawTargetPos = rawTargetPos
                 
-                -- 2. توقع الموقع (90%)
+                -- 2. توقع الموقع
                 local predictedPos = rawTargetPos + (targetVelocity * CONFIG.PREDICTION_STRENGTH * deltaTime)
                 
-                -- 3. تنعيم موقع الهدف (90%)
+                -- 3. تنعيم موقع الهدف
                 local targetSmoothFactor = 1 - math.pow(1 - CONFIG.TARGET_SMOOTHNESS, deltaTime * 60)
                 smoothedTargetPosition = smoothedTargetPosition:Lerp(predictedPos, targetSmoothFactor)
                 
@@ -620,9 +624,9 @@ RunService.RenderStepped:Connect(function(deltaTime)
                 if distanceToTarget > CONFIG.AIM_DEAD_ZONE then
                     local goalCFrame = CFrame.lookAt(cameraPos, smoothedTargetPosition)
                     
-                    -- 4. نعومة متغيرة (محسّنة لتتبع 90%)
+                    -- 4. نعومة متغيرة
                     local movementSpeed = targetVelocity.Magnitude
-                    local speedBoost = math.clamp(movementSpeed / 60, 0, 0.2)
+                    local speedBoost = math.clamp(movementSpeed / 80, 0, 0.15)
                     
                     local distanceRatio = math.clamp(distanceToTarget / 100, 0, 1)
                     local baseSmoothness = CONFIG.AIM_SMOOTHNESS * distanceRatio
@@ -632,10 +636,10 @@ RunService.RenderStepped:Connect(function(deltaTime)
                     
                     local newCFrame = Camera.CFrame:Lerp(goalCFrame, smoothFactor)
                     
-                    -- 5. مزج الاتجاه (أقوى)
+                    -- 5. مزج الاتجاه
                     local currentLook = Camera.CFrame.LookVector
                     local newLook = newCFrame.LookVector
-                    local blendFactor = 0.65 + math.clamp(movementSpeed / 100, 0, 0.2)
+                    local blendFactor = 0.65 + math.clamp(movementSpeed / 120, 0, 0.2)
                     local blendedLook = currentLook:Lerp(newLook, blendFactor).Unit
                     
                     -- 6. Vertical Lock
@@ -668,3 +672,4 @@ end)
 -- ✅ إعداد أولي
 UpdateAimVisual()
 UpdateESPVisual()
+print("✅ النظام جاهز - AIM_SMOOTHNESS = 0.70")
