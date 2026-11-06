@@ -16,9 +16,6 @@ local AIM_HEIGHT_OFFSET = 0.5
 local ESP_FILL_COLOR = Color3.fromRGB(255, 0, 0)
 local ESP_OUTLINE_COLOR = Color3.fromRGB(255, 255, 255)
 local ESP_FILL_TRANSPARENCY = 0.5
-local ESP_SHOW_NAME = true
-local ESP_SHOW_DISTANCE = true
-local ESP_MAX_DISTANCE = 500
 
 ------------------------------------------------------------
 -- 🎯 Aim Assist
@@ -67,7 +64,7 @@ RunService.RenderStepped:Connect(function(dt)
 end)
 
 ------------------------------------------------------------
--- 👁️ ESP (Highlight + BillboardGui)
+-- 👁️ ESP (Highlight فقط، بدون أسماء أو مسافات)
 ------------------------------------------------------------
 local espObjects = {}
 
@@ -76,7 +73,6 @@ local function createESP(plr)
     local char = plr.Character
     if not char then return end
 
-    -- Highlight (يظهر عبر الجدران)
     local hl = Instance.new("Highlight")
     hl.Name = "AssistESP_Highlight"
     hl.FillColor = ESP_FILL_COLOR
@@ -86,71 +82,25 @@ local function createESP(plr)
     hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     hl.Parent = char
 
-    -- BillboardGui فوق الرأس (اسم + مسافة)
-    local head = char:FindFirstChild("Head")
-    local billboard
-    if head then
-        billboard = Instance.new("BillboardGui")
-        billboard.Name = "AssistESP_Billboard"
-        billboard.Size = UDim2.new(0, 200, 0, 50)
-        billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-        billboard.AlwaysOnTop = true
-        billboard.MaxDistance = ESP_MAX_DISTANCE
-        billboard.Parent = head
-
-        local label = Instance.new("TextLabel")
-        label.Name = "InfoLabel"
-        label.Size = UDim2.new(1, 0, 1, 0)
-        label.BackgroundTransparency = 1
-        label.TextColor3 = ESP_FILL_COLOR
-        label.TextStrokeTransparency = 0
-        label.Font = Enum.Font.GothamBold
-        label.TextSize = 16
-        label.Text = ""
-        label.Parent = billboard
-    end
-
-    espObjects[plr] = {highlight = hl, billboard = billboard, label = billboard and billboard:FindFirstChild("InfoLabel")}
+    espObjects[plr] = hl
 end
 
 local function removeESP(plr)
-    local data = espObjects[plr]
-    if data then
-        if data.highlight then data.highlight:Destroy() end
-        if data.billboard then data.billboard:Destroy() end
+    local hl = espObjects[plr]
+    if hl then
+        hl:Destroy()
         espObjects[plr] = nil
     end
 end
 
--- تحديث النص (اسم + مسافة)
-RunService.Heartbeat:Connect(function()
-    for plr, data in pairs(espObjects) do
-        if not data.label then continue end
-        local char = plr.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-
-        if hrp and hum and hum.Health > 0 then
-            local dist = math.floor((hrp.Position - camera.CFrame.Position).Magnitude)
-            local parts = {}
-            if ESP_SHOW_NAME then table.insert(parts, plr.Name) end
-            if ESP_SHOW_DISTANCE then table.insert(parts, "[" .. dist .. "m]") end
-            data.label.Text = table.concat(parts, " ")
-        else
-            data.label.Text = ""
-        end
-    end
-end)
-
--- ربط الأحداث
-local function onCharacterAdded(plr, char)
+local function onCharacterAdded(plr)
     task.wait(0.5)
     createESP(plr)
 end
 
 local function onPlayerAdded(plr)
     if plr == localPlayer then return end
-    plr.CharacterAdded:Connect(function(char) onCharacterAdded(plr, char) end)
+    plr.CharacterAdded:Connect(function() onCharacterAdded(plr) end)
     if plr.Character then createESP(plr) end
 end
 
