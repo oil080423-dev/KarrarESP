@@ -1,5 +1,5 @@
 -- ═══════════════════════════════════════════════════════
--- 🎯 نظام التصويب + ESP - أيقونة واحدة + قائمة متحركة
+-- 🎯 نظام التصويب + ESP - تتبع 70% + أيقونة واحدة
 -- ═══════════════════════════════════════════════════════
 
 local Players = game:GetService("Players")
@@ -12,15 +12,20 @@ local LocalPlayer = Players.LocalPlayer
 -- ⚙️ الإعدادات
 -- ═══════════════════════════════════════════
 local CONFIG = {
-    -- 🎯 التصويب (ثبات قوي جداً + سلاسة)
+    -- 🎯 التصويب (تتبع 70%)
     FOV_RADIUS = 110,
-    AIM_SMOOTHNESS = 0.32,         -- ⬅️ نعومة أعلى (كان 0.28)
-    AIM_DEAD_ZONE = 1.0,           -- ⬅️ منطقة ميتة أكبر (ثبات)
-    TARGET_SMOOTHNESS = 0.22,      -- ⬅️ تتبع أسلس
-    STICKINESS = 0.97,             -- ⬅️ ثبات شبه كامل
+    AIM_SMOOTHNESS = 0.32,
+    AIM_DEAD_ZONE = 0.8,
+    TARGET_SMOOTHNESS = 0.70,      -- تتبع الهدف (70%)
+    STICKINESS = 0.95,
     MAX_DISTANCE = 600,
     HEAD_OFFSET = Vector3.new(0, 0, 0),
     AIM_KEY = Enum.KeyCode.Q,
+    
+    -- 🆕 إعدادات التتبع
+    PREDICTION_STRENGTH = 0.70,    -- توقع الحركة (70%)
+    VERTICAL_LOCK = true,
+    TRACKING_POWER = 0.70,         -- قوة التتبع (70%)
     
     -- 👁️ ESP
     ESP_KEY = Enum.KeyCode.E,
@@ -28,8 +33,6 @@ local CONFIG = {
     ESP_COLOR = Color3.fromRGB(255, 40, 40),
     ESP_FILL_TRANSPARENCY = 0.75,
     ESP_OUTLINE_TRANSPARENCY = 0,
-    
-    -- ⚡ الأداء
     ESP_UPDATE_INTERVAL = 0.1,
     
     -- 🎯 Crosshair
@@ -39,8 +42,8 @@ local CONFIG = {
     CROSSHAIR_GAP = 4,
     
     -- 🎨 الألوان
-    ICON_COLOR = Color3.fromRGB(180, 0, 0),      -- أحمر
-    ICON_ACTIVE_COLOR = Color3.fromRGB(0, 200, 0), -- أخضر
+    ICON_COLOR = Color3.fromRGB(180, 0, 0),
+    ICON_ACTIVE_COLOR = Color3.fromRGB(0, 200, 0),
 }
 
 -- ═══════════════════════════════════════════
@@ -54,6 +57,8 @@ local espObjects = {}
 local smoothedTargetPosition = nil
 local lastTargetHead = nil
 local lastESPUpdate = 0
+local targetVelocity = Vector3.zero
+local lastRawTargetPos = nil
 
 -- ═══════════════════════════════════════════
 -- 🛠️ دوال التصويب
@@ -226,9 +231,7 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.IgnoreGuiInset = true
 screenGui.Parent = playerGui
 
--- ═══════════════════════════════════════════
--- 🎯 دائرة FOV (ثابتة في المنتصف)
--- ═══════════════════════════════════════════
+-- 🎯 دائرة FOV
 local fovCircle = Instance.new("Frame")
 fovCircle.Name = "FOVCircle"
 fovCircle.Size = UDim2.new(0, CONFIG.FOV_RADIUS * 2, 0, CONFIG.FOV_RADIUS * 2)
@@ -249,9 +252,7 @@ fovStroke.Thickness = 1.5
 fovStroke.Transparency = 0.75
 fovStroke.Parent = fovCircle
 
--- ═══════════════════════════════════════════
 -- ➕ Crosshair
--- ═══════════════════════════════════════════
 local crosshairContainer = Instance.new("Frame")
 crosshairContainer.Name = "Crosshair"
 crosshairContainer.Size = UDim2.new(0, 0, 0, 0)
@@ -294,13 +295,11 @@ CreateCrosshairLine("LineBottom",
     UDim2.new(0, -CONFIG.CROSSHAIR_THICKNESS / 2, 0, CONFIG.CROSSHAIR_GAP),
     Vector2.new(0.5, 0))
 
--- ═══════════════════════════════════════════
--- 🎛️ الأيقونة الواحدة (Draggable)
--- ═══════════════════════════════════════════
+-- 🎛️ الأيقونة الواحدة
 local mainIcon = Instance.new("TextButton")
 mainIcon.Name = "MainIcon"
 mainIcon.Size = UDim2.new(0, 60, 0, 60)
-mainIcon.Position = UDim2.new(1, -80, 0.5, -30)  -- يمين الشاشة
+mainIcon.Position = UDim2.new(1, -80, 0.5, -30)
 mainIcon.BackgroundColor3 = CONFIG.ICON_COLOR
 mainIcon.BackgroundTransparency = 0.1
 mainIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -321,13 +320,11 @@ iconStroke.Thickness = 2
 iconStroke.Transparency = 0.3
 iconStroke.Parent = mainIcon
 
--- ═══════════════════════════════════════════
--- 📋 القائمة المنسدلة
--- ═══════════════════════════════════════════
+-- 📋 القائمة
 local menuFrame = Instance.new("Frame")
 menuFrame.Name = "MenuFrame"
 menuFrame.Size = UDim2.new(0, 180, 0, 160)
-menuFrame.Position = UDim2.new(1, -260, 0.5, -80)  -- يسار الأيقونة
+menuFrame.Position = UDim2.new(1, -260, 0.5, -80)
 menuFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 menuFrame.BackgroundTransparency = 0.1
 menuFrame.BorderSizePixel = 0
@@ -344,7 +341,6 @@ menuStroke.Thickness = 2
 menuStroke.Transparency = 0.3
 menuStroke.Parent = menuFrame
 
--- عنوان القائمة
 local menuTitle = Instance.new("TextLabel")
 menuTitle.Size = UDim2.new(1, 0, 0, 28)
 menuTitle.Position = UDim2.new(0, 0, 0, 5)
@@ -355,7 +351,6 @@ menuTitle.TextScaled = true
 menuTitle.Font = Enum.Font.GothamBold
 menuTitle.Parent = menuFrame
 
--- زر التصويب
 local aimToggle = Instance.new("TextButton")
 aimToggle.Name = "AimToggle"
 aimToggle.Size = UDim2.new(0.9, 0, 0, 45)
@@ -373,7 +368,6 @@ local aimToggleCorner = Instance.new("UICorner")
 aimToggleCorner.CornerRadius = UDim.new(0, 8)
 aimToggleCorner.Parent = aimToggle
 
--- زر ESP
 local espToggle = Instance.new("TextButton")
 espToggle.Name = "ESPToggle"
 espToggle.Size = UDim2.new(0.9, 0, 0, 45)
@@ -391,9 +385,7 @@ local espToggleCorner = Instance.new("UICorner")
 espToggleCorner.CornerRadius = UDim.new(0, 8)
 espToggleCorner.Parent = espToggle
 
--- ═══════════════════════════════════════════
 -- 🔄 تحديث الأزرار
--- ═══════════════════════════════════════════
 local function UpdateAimVisual()
     if isAiming then
         aimToggle.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
@@ -414,15 +406,15 @@ local function UpdateESPVisual()
     end
 end
 
--- ═══════════════════════════════════════════
 -- 🎮 دوال التبديل
--- ═══════════════════════════════════════════
 local function ToggleAim()
     isAiming = not isAiming
     if not isAiming then
         currentTarget = nil
         smoothedTargetPosition = nil
         lastTargetHead = nil
+        lastRawTargetPos = nil
+        targetVelocity = Vector3.zero
     end
     UpdateAimVisual()
 end
@@ -436,8 +428,6 @@ end
 local function ToggleMenu()
     isMenuOpen = not isMenuOpen
     menuFrame.Visible = isMenuOpen
-    
-    -- تغيير لون الأيقونة عند الفتح
     if isMenuOpen then
         mainIcon.BackgroundColor3 = CONFIG.ICON_ACTIVE_COLOR
         mainIcon.Text = "✖️"
@@ -447,9 +437,7 @@ local function ToggleMenu()
     end
 end
 
--- ═══════════════════════════════════════════
--- 🖱️ نظام السحب (Draggable) - للأيقونة والقائمة
--- ═══════════════════════════════════════════
+-- 🖱️ نظام السحب
 local function MakeDraggable(frame, targetFrame)
     local dragging = false
     local dragStart = nil
@@ -461,7 +449,6 @@ local function MakeDraggable(frame, targetFrame)
             dragging = true
             dragStart = input.Position
             startPos = targetFrame.Position
-            
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then
                     dragging = false
@@ -482,10 +469,8 @@ local function MakeDraggable(frame, targetFrame)
     end)
 end
 
--- جعل الأيقونة قابلة للسحب
 MakeDraggable(mainIcon, mainIcon)
 
--- جعل القائمة قابلة للسحب (من العنوان)
 local titleDragArea = Instance.new("TextButton")
 titleDragArea.Size = UDim2.new(1, 0, 0, 35)
 titleDragArea.Position = UDim2.new(0, 0, 0, 0)
@@ -495,11 +480,7 @@ titleDragArea.Parent = menuFrame
 
 MakeDraggable(titleDragArea, menuFrame)
 
--- ═══════════════════════════════════════════
--- 🎯 ربط الأحداث
--- ═══════════════════════════════════════════
-
--- فتح/إغلاق القائمة عند الضغط على الأيقونة (بدون سحب)
+-- 🎯 ربط الأيقونة
 local iconClickStart = nil
 local iconDragged = false
 
@@ -531,20 +512,16 @@ mainIcon.InputEnded:Connect(function(input)
     end
 end)
 
--- أزرار القائمة
 aimToggle.MouseButton1Click:Connect(ToggleAim)
 espToggle.MouseButton1Click:Connect(ToggleESP)
 
--- ⌨️ اختصارات الكيبورد
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     if input.KeyCode == CONFIG.AIM_KEY then ToggleAim() end
     if input.KeyCode == CONFIG.ESP_KEY then ToggleESP() end
 end)
 
--- ═══════════════════════════════════════════
--- 🔄 إدارة اللاعبين
--- ═══════════════════════════════════════════
+-- إدارة اللاعبين
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function()
         task.wait(0.5)
@@ -559,7 +536,7 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ═══════════════════════════════════════════
--- 🔄 الحلقة الرئيسية (تصويب أسلس + ثبات أقوى)
+-- 🔄 الحلقة الرئيسية (تتبع 70%)
 -- ═══════════════════════════════════════════
 RunService.RenderStepped:Connect(function(deltaTime)
     local now = tick()
@@ -579,42 +556,73 @@ RunService.RenderStepped:Connect(function(deltaTime)
             local targetHead = target.Character and target.Character:FindFirstChild("Head")
             
             if targetHead then
+                local rawTargetPos = targetHead.Position + CONFIG.HEAD_OFFSET
+                
                 if lastTargetHead ~= targetHead then
                     lastTargetHead = targetHead
-                    smoothedTargetPosition = targetHead.Position + CONFIG.HEAD_OFFSET
+                    smoothedTargetPosition = rawTargetPos
+                    lastRawTargetPos = rawTargetPos
+                    targetVelocity = Vector3.zero
                 end
                 
-                -- 🔹 1. تنعيم موقع الهدف (أسلس)
-                local rawTargetPos = targetHead.Position + CONFIG.HEAD_OFFSET
+                -- 1. حساب سرعة الهدف
+                if lastRawTargetPos and deltaTime > 0 then
+                    local instantVelocity = (rawTargetPos - lastRawTargetPos) / deltaTime
+                    targetVelocity = targetVelocity:Lerp(instantVelocity, 0.5)
+                end
+                lastRawTargetPos = rawTargetPos
+                
+                -- 2. توقع الموقع التالي (70%)
+                local predictedPos = rawTargetPos + (targetVelocity * CONFIG.PREDICTION_STRENGTH * deltaTime)
+                
+                -- 3. تنعيم موقع الهدف (70%)
                 local targetSmoothFactor = 1 - math.pow(1 - CONFIG.TARGET_SMOOTHNESS, deltaTime * 60)
-                smoothedTargetPosition = smoothedTargetPosition:Lerp(rawTargetPos, targetSmoothFactor)
+                smoothedTargetPosition = smoothedTargetPosition:Lerp(predictedPos, targetSmoothFactor)
                 
                 local cameraPos = Camera.CFrame.Position
                 local direction = smoothedTargetPosition - cameraPos
                 local distanceToTarget = direction.Magnitude
                 
-                -- 🔹 2. Dead Zone (ثبات قوي عند الوصول)
                 if distanceToTarget > CONFIG.AIM_DEAD_ZONE then
                     local goalCFrame = CFrame.lookAt(cameraPos, smoothedTargetPosition)
                     
-                    -- 🔹 3. نعومة متغيرة (أسلس عند القرب)
-                    local distanceRatio = math.clamp(distanceToTarget / 100, 0, 1)
-                    local adaptiveSmoothness = math.max(CONFIG.AIM_SMOOTHNESS * distanceRatio, 0.03)
+                    -- 4. نعومة متغيرة (محسّنة لتتبع 70%)
+                    local movementSpeed = targetVelocity.Magnitude
+                    local speedBoost = math.clamp(movementSpeed / 80, 0, 0.15)
+                    
+                    local distanceRatio = math.clamp(distanceToTarget / 80, 0, 1)
+                    local baseSmoothness = CONFIG.AIM_SMOOTHNESS * distanceRatio
+                    local adaptiveSmoothness = math.max(baseSmoothness + speedBoost, 0.06)
+                    
                     local smoothFactor = 1 - math.pow(1 - adaptiveSmoothness, deltaTime * 60)
                     
                     local newCFrame = Camera.CFrame:Lerp(goalCFrame, smoothFactor)
                     
-                    -- 🔹 4. مزج الاتجاه (أسلس)
+                    -- 5. مزج الاتجاه (محسّن لتتبع 70%)
                     local currentLook = Camera.CFrame.LookVector
                     local newLook = newCFrame.LookVector
-                    local blendedLook = currentLook:Lerp(newLook, 0.5).Unit
+                    local blendFactor = 0.55 + math.clamp(movementSpeed / 120, 0, 0.2)
+                    local blendedLook = currentLook:Lerp(newLook, blendFactor).Unit
                     
-                    Camera.CFrame = CFrame.lookAt(cameraPos, cameraPos + blendedLook)
+                    -- 6. Vertical Lock
+                    if CONFIG.VERTICAL_LOCK then
+                        local targetY = smoothedTargetPosition.Y
+                        local finalTarget = Vector3.new(
+                            cameraPos.X + blendedLook.X * distanceToTarget,
+                            targetY,
+                            cameraPos.Z + blendedLook.Z * distanceToTarget
+                        )
+                        Camera.CFrame = CFrame.lookAt(cameraPos, finalTarget)
+                    else
+                        Camera.CFrame = CFrame.lookAt(cameraPos, cameraPos + blendedLook)
+                    end
                 end
             end
         else
             smoothedTargetPosition = nil
             lastTargetHead = nil
+            lastRawTargetPos = nil
+            targetVelocity = Vector3.zero
         end
     end
     
@@ -623,8 +631,6 @@ RunService.RenderStepped:Connect(function(deltaTime)
     end
 end)
 
--- ═══════════════════════════════════════════
 -- ✅ إعداد أولي
--- ═══════════════════════════════════════════
 UpdateAimVisual()
 UpdateESPVisual()
