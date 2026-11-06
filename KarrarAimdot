@@ -1,258 +1,326 @@
--- Karrar Head Tracker V2
--- Mobile + PC
--- Visual Head Tracking
+--========================================
+-- KARRAR ESP SYSTEM V2.0
+-- Roblox Studio | LocalScript
+--========================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
 local LocalPlayer = Players.LocalPlayer
 
-local Camera = workspace.CurrentCamera
+-- SETTINGS
+local ESPEnabled = false
+local AimEnabled = false
 
-local Enabled = true
-local FOVRadius = 150
-local CurrentTarget = nil
-local CurrentHighlight = nil
+local AimSpeed = 14
+local MaxDistance = 500
 
+local Highlights = {}
+
+--========================================
 -- GUI
+--========================================
+
 local GUI = Instance.new("ScreenGui")
-GUI.Name = "KarrarHeadTracker"
+GUI.Name = "KarrarSystem"
 GUI.ResetOnSpawn = false
-GUI.IgnoreGuiInset = true
 GUI.Parent = LocalPlayer:WaitForChild("PlayerGui")
 
--- FOV Circle
-local Circle = Instance.new("Frame")
-Circle.Name = "FOV"
-Circle.AnchorPoint = Vector2.new(0.5, 0.5)
-Circle.BackgroundTransparency = 1
-Circle.Size = UDim2.fromOffset(300, 300)
-Circle.Parent = GUI
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.fromOffset(260, 220)
+Main.Position = UDim2.new(0.5, -130, 0.5, -110)
+Main.BackgroundColor3 = Color3.fromRGB(18, 18, 27)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Parent = GUI
 
-local Round = Instance.new("UICorner")
-Round.CornerRadius = UDim.new(1, 0)
-Round.Parent = Circle
+Instance.new("UICorner", Main).CornerRadius =
+    UDim.new(0, 12)
 
 local Border = Instance.new("UIStroke")
-Border.Color = Color3.fromRGB(255, 50, 50)
+Border.Color = Color3.fromRGB(135, 75, 255)
 Border.Thickness = 2
-Border.Parent = Circle
+Border.Parent = Main
 
--- Panel
-local Panel = Instance.new("Frame")
-Panel.Size = UDim2.fromOffset(190, 145)
-Panel.Position = UDim2.new(0, 15, 0.35, 0)
-Panel.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-Panel.Parent = GUI
+--========================================
+-- TITLE
+--========================================
 
-Instance.new("UICorner", Panel)
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(1, 0, 0, 45)
+Title.BackgroundColor3 = Color3.fromRGB(30, 25, 45)
+Title.Text = "KARRAR  |  V2.0"
+Title.TextColor3 = Color3.fromRGB(190, 150, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 17
+Title.Active = true
+Title.Parent = Main
 
-local function Button(name, title, pos, size)
-    local B = Instance.new("TextButton")
-    B.Name = name
-    B.Text = title
-    B.Position = pos
-    B.Size = size
-    B.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
-    B.TextColor3 = Color3.new(1, 1, 1)
-    B.TextSize = 14
-    B.Parent = Panel
+Instance.new("UICorner", Title).CornerRadius =
+    UDim.new(0, 12)
 
-    Instance.new("UICorner", B)
-    return B
+--========================================
+-- BUTTON CREATOR
+--========================================
+
+local function CreateButton(Name, Text, Y)
+
+    local Button = Instance.new("TextButton")
+
+    Button.Name = Name
+    Button.Size = UDim2.new(1, -30, 0, 43)
+    Button.Position = UDim2.fromOffset(15, Y)
+
+    Button.BackgroundColor3 =
+        Color3.fromRGB(43, 43, 58)
+
+    Button.Text = Text
+    Button.TextColor3 = Color3.new(1, 1, 1)
+
+    Button.Font = Enum.Font.GothamBold
+    Button.TextSize = 14
+
+    Button.AutoButtonColor = true
+    Button.Parent = Main
+
+    Instance.new("UICorner", Button).CornerRadius =
+        UDim.new(0, 8)
+
+    return Button
 end
 
-local Toggle = Button(
-    "Toggle",
-    "SYSTEM: ON",
-    UDim2.fromOffset(10, 10),
-    UDim2.new(1, -20, 0, 35)
+local AimButton = CreateButton(
+    "AimButton",
+    "AIM ASSIST: OFF",
+    60
 )
 
-local Minus = Button(
-    "Minus",
-    "- FOV",
-    UDim2.fromOffset(10, 55),
-    UDim2.fromOffset(75, 30)
-)
-
-local Plus = Button(
-    "Plus",
-    "+ FOV",
-    UDim2.fromOffset(105, 55),
-    UDim2.fromOffset(75, 30)
+local ESPButton = CreateButton(
+    "ESPButton",
+    "ESP: OFF",
+    112
 )
 
 local Status = Instance.new("TextLabel")
-Status.Size = UDim2.new(1, -20, 0, 35)
-Status.Position = UDim2.fromOffset(10, 100)
+
+Status.Size = UDim2.new(1, -30, 0, 25)
+Status.Position = UDim2.fromOffset(15, 170)
 Status.BackgroundTransparency = 1
-Status.TextColor3 = Color3.new(1, 1, 1)
-Status.Text = "Target: None"
-Status.TextSize = 13
-Status.Parent = Panel
 
--- Head Marker
-local Marker = Instance.new("BillboardGui")
-Marker.Name = "HeadMarker"
-Marker.Size = UDim2.fromOffset(65, 65)
-Marker.AlwaysOnTop = true
-Marker.Enabled = false
-Marker.Parent = GUI
+Status.Text = "SYSTEM READY"
+Status.TextColor3 = Color3.fromRGB(150, 150, 170)
 
-local MarkerText = Instance.new("TextLabel")
-MarkerText.Size = UDim2.fromScale(1, 1)
-MarkerText.BackgroundTransparency = 1
-MarkerText.Text = "✛"
-MarkerText.TextColor3 = Color3.fromRGB(255, 40, 40)
-MarkerText.TextStrokeTransparency = 0
-MarkerText.TextScaled = true
-MarkerText.Parent = Marker
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 12
 
--- Clear Target
-local function ClearTarget()
-    CurrentTarget = nil
-    Marker.Enabled = false
+Status.Parent = Main
 
-    if CurrentHighlight then
-        CurrentHighlight:Destroy()
-        CurrentHighlight = nil
+--========================================
+-- BUTTON COLORS
+--========================================
+
+local function UpdateButton(Button, Enabled, Name)
+
+    Button.Text = Name .. (Enabled and ": ON" or ": OFF")
+
+    Button.BackgroundColor3 = Enabled
+        and Color3.fromRGB(105, 55, 190)
+        or Color3.fromRGB(43, 43, 58)
+end
+
+--========================================
+-- AIM ASSIST TOGGLE
+--========================================
+
+AimButton.MouseButton1Click:Connect(function()
+
+    AimEnabled = not AimEnabled
+
+    UpdateButton(
+        AimButton,
+        AimEnabled,
+        "AIM ASSIST"
+    )
+end)
+
+--========================================
+-- ESP SYSTEM
+--========================================
+
+local function RemoveESP(Player)
+
+    if Highlights[Player] then
+
+        Highlights[Player]:Destroy()
+
+        Highlights[Player] = nil
     end
 end
 
--- Select Target
-local function SelectTarget(Player)
-    if CurrentTarget == Player then
+local function AddESP(Player)
+
+    if Player == LocalPlayer then
         return
     end
 
-    ClearTarget()
-    CurrentTarget = Player
-
     local Character = Player.Character
-    if not Character then return end
 
-    local Head = Character:FindFirstChild("Head")
-    if not Head then return end
+    if not Character then
+        return
+    end
 
-    Marker.Adornee = Head
-    Marker.Enabled = true
+    RemoveESP(Player)
 
     local Highlight = Instance.new("Highlight")
-    Highlight.Name = "KarrarTargetHighlight"
+
+    Highlight.Name = "KarrarESP"
     Highlight.Adornee = Character
-    Highlight.FillColor = Color3.fromRGB(255, 40, 40)
-    Highlight.OutlineColor = Color3.new(1, 1, 1)
-    Highlight.FillTransparency = 0.8
-    Highlight.Parent = GUI
 
-    CurrentHighlight = Highlight
+    Highlight.FillColor =
+        Color3.fromRGB(135, 65, 255)
+
+    Highlight.OutlineColor =
+        Color3.fromRGB(255, 255, 255)
+
+    Highlight.FillTransparency = 0.65
+    Highlight.OutlineTransparency = 0
+
+    Highlight.DepthMode =
+        Enum.HighlightDepthMode.AlwaysOnTop
+
+    Highlight.Parent = Character
+
+    Highlights[Player] = Highlight
 end
 
--- FOV Controls
-local function UpdateFOV()
-    Circle.Size = UDim2.fromOffset(FOVRadius * 2, FOVRadius * 2)
-end
+local function UpdateESP()
 
-Minus.Activated:Connect(function()
-    FOVRadius = math.max(50, FOVRadius - 25)
-    UpdateFOV()
-end)
+    for _, Player in ipairs(Players:GetPlayers()) do
 
-Plus.Activated:Connect(function()
-    FOVRadius = math.min(400, FOVRadius + 25)
-    UpdateFOV()
-end)
+        if Player ~= LocalPlayer then
 
-Toggle.Activated:Connect(function()
-    Enabled = not Enabled
-    Toggle.Text = Enabled and "SYSTEM: ON" or "SYSTEM: OFF"
-    Circle.Visible = Enabled
-
-    if not Enabled then
-        ClearTarget()
-        Status.Text = "Target: Disabled"
+            if ESPEnabled then
+                AddESP(Player)
+            else
+                RemoveESP(Player)
+            end
+        end
     end
-end)
+end
 
--- Main Tracking Loop
-RunService.RenderStepped:Connect(function()
-    Camera = workspace.CurrentCamera
+ESPButton.MouseButton1Click:Connect(function()
 
-    local Viewport = Camera.ViewportSize
-    local Center = Vector2.new(
-        Viewport.X / 2,
-        Viewport.Y / 2
+    ESPEnabled = not ESPEnabled
+
+    UpdateButton(
+        ESPButton,
+        ESPEnabled,
+        "ESP"
     )
 
-    Circle.Position = UDim2.fromOffset(Center.X, Center.Y)
-
-    if not Enabled then return end
-
-    local BestPlayer = nil
-    local BestDistance = FOVRadius
-
-    -- Keep current target if still valid
-    if CurrentTarget then
-        local Character = CurrentTarget.Character
-        local Head = Character and Character:FindFirstChild("Head")
-
-        if Head then
-            local Position, Visible =
-                Camera:WorldToViewportPoint(Head.Position)
-
-            local Distance = (
-                Vector2.new(Position.X, Position.Y) - Center
-            ).Magnitude
-
-            if Visible and Position.Z > 0 and Distance <= FOVRadius then
-                BestPlayer = CurrentTarget
-            end
-        end
-    end
-
-    -- Find nearest target if needed
-    if not BestPlayer then
-        for _, Player in ipairs(Players:GetPlayers()) do
-            if Player ~= LocalPlayer then
-                local Character = Player.Character
-                local Head = Character and Character:FindFirstChild("Head")
-                local Humanoid = Character and
-                    Character:FindFirstChildOfClass("Humanoid")
-
-                if Head and Humanoid and Humanoid.Health > 0 then
-                    local Position, Visible =
-                        Camera:WorldToViewportPoint(Head.Position)
-
-                    if Visible and Position.Z > 0 then
-                        local Distance = (
-                            Vector2.new(Position.X, Position.Y) - Center
-                        ).Magnitude
-
-                        if Distance <= BestDistance then
-                            BestDistance = Distance
-                            BestPlayer = Player
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if BestPlayer then
-        SelectTarget(BestPlayer)
-        Status.Text = "Target: " .. BestPlayer.Name
-    else
-        ClearTarget()
-        Status.Text = "Target: None"
-    end
+    UpdateESP()
 end)
+
+--========================================
+-- PLAYER REGISTRATION
+--========================================
+
+local function RegisterPlayer(Player)
+
+    if Player == LocalPlayer then
+        return
+    end
+
+    Player.CharacterAdded:Connect(function()
+
+        task.wait(0.5)
+
+        if ESPEnabled then
+            AddESP(Player)
+        end
+    end)
+end
+
+for _, Player in ipairs(Players:GetPlayers()) do
+    RegisterPlayer(Player)
+end
+
+Players.PlayerAdded:Connect(RegisterPlayer)
 
 Players.PlayerRemoving:Connect(function(Player)
-    if Player == CurrentTarget then
-        ClearTarget()
+
+    RemoveESP(Player)
+end)
+
+--========================================
+-- DRAGGABLE WINDOW
+-- MOUSE + TOUCH
+--========================================
+
+local Dragging = false
+local DragStart
+local StartPosition
+local DragInput
+
+Title.InputBegan:Connect(function(Input)
+
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+    or Input.UserInputType == Enum.UserInputType.Touch then
+
+        Dragging = true
+
+        DragStart = Input.Position
+        StartPosition = Main.Position
+
+        if Input.UserInputType == Enum.UserInputType.Touch then
+            DragInput = Input
+        end
     end
 end)
 
-UpdateFOV()
+UserInputService.InputChanged:Connect(function(Input)
 
-print("Karrar Head Tracker V2 Loaded")
+    if not Dragging then
+        return
+    end
+
+    local IsMouse =
+        Input.UserInputType == Enum.UserInputType.MouseMovement
+
+    local IsTouch =
+        Input == DragInput
+
+    if IsMouse or IsTouch then
+
+        local Delta = Input.Position - DragStart
+
+        Main.Position = UDim2.new(
+            StartPosition.X.Scale,
+            StartPosition.X.Offset + Delta.X,
+
+            StartPosition.Y.Scale,
+            StartPosition.Y.Offset + Delta.Y
+        )
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(Input)
+
+    if Input.UserInputType == Enum.UserInputType.MouseButton1
+    or Input == DragInput then
+
+        Dragging = false
+        DragInput = nil
+    end
+end)
+
+--========================================
+-- INITIALIZATION
+--========================================
+
+Status.Text = "KARRAR SYSTEM V2.0 READY"
+
+print("KARRAR SYSTEM V2.0 LOADED")
